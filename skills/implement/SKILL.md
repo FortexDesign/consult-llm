@@ -6,7 +6,7 @@ allowed-tools: Bash, Glob, Grep, Read, Edit, Write
 
 End-to-end autonomous workflow: spec → plan → review → implement → verification review → summary. Reviewers must produce structured findings with concrete evidence; conflicts resolve through a written decision ledger, not silent agent judgment.
 
-**Load the `consult-llm` skill before proceeding** — it defines the invocation contract. Do not call the CLI without loading it first.
+**Load the `consult-llm` skill before proceeding** - it defines the invocation contract. Do not call the CLI without loading it first.
 
 ## Argument handling
 
@@ -16,9 +16,10 @@ End-to-end autonomous workflow: spec → plan → review → implement → verif
 
 **Mode flags:**
 
-- `--consult-first` — gather independent reviewer proposals before writing the spec/plan, then synthesize into an Approach Decision Record. Use when scope is ambiguous, direction non-obvious, the change crosses module boundaries, or the repo is unfamiliar. Skip for typos, mechanical renames, exact bug fixes, or dependency bumps.
-- `--rounds N` — repeat the review-refine cycle (Phases 3–4) up to N times. Default `1`, max `3`.
-- `--no-review` — skip Phases 3, 4, and 6. Compatible with `--consult-first` (proposal generation still runs; plan review and verification review do not).
+- `--consult-first` - gather independent reviewer proposals before writing the spec/plan, then synthesize into an Approach Decision Record. Use when scope is ambiguous, direction non-obvious, the change crosses module boundaries, or the repo is unfamiliar. Skip for typos, mechanical renames, exact bug fixes, or dependency bumps.
+- `--rounds N` - repeat the review-refine cycle (Phases 3-4) up to N times. Default `1`, max `3`.
+- `--review full|standard|light|none` - choose review depth. Default `standard`. `full` and `standard` run Phases 3, 4, and 6. `light` skips Phases 3 and 4 but keeps Phase 6. `none` skips Phases 3, 4, and 6.
+- `--no-review` - alias for `--review none`. Compatible with `--consult-first` (proposal generation still runs; plan review and verification review do not).
 
 Strip all flags from arguments to get the task description.
 
@@ -34,8 +35,8 @@ git symbolic-ref --short HEAD
 
 Halt conditions (do not auto-recover):
 
-- Working tree shows changes outside expected files — user must clean or stash.
-- No reviewer model resolves (unless `--no-review` is set and `--consult-first` is not).
+- Working tree shows changes outside expected files - user must clean or stash.
+- No reviewer model resolves (unless `--review none` or `--no-review` is set and `--consult-first` is not).
 
 ## Phase 1: Gather context
 
@@ -58,7 +59,7 @@ Select source files that let reviewers understand the behavior being changed and
 
 ## Phase 2: Spec and plan
 
-### 2A — Independent proposals (only if `--consult-first`)
+### 2A - Independent proposals (only if `--consult-first`)
 
 Reviewers must see only the raw task and factual source context. Do **not** write inferred scope, assumptions, acceptance criteria, direction, or tasks before proposals are captured.
 
@@ -66,9 +67,9 @@ Save a context bundle to `history/<YYYY-MM-DD>-context-<topic>.md`. Include only
 
 - Raw task verbatim.
 - Repo facts: branch, START_HEAD, validation command, test framework.
-- Source inventory — files with **factual** reasons for inclusion only ("contains symbol X", "test file for Y"). No "likely needs change", no "probable approach".
+- Source inventory - files with **factual** reasons for inclusion only ("contains symbol X", "test file for Y"). No "likely needs change", no "probable approach".
 
-Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <context bundle>`, and `-f <relevant source>`. Capture `[thread_id:group_xxx]` from line 1 as `CONSULT_THREAD_ID` — it threads through 2A → 3 → 4 → 6. Synthesize the proposals directly into the ADR.
+Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <context bundle>`, and `-f <relevant source>`. Capture `[thread_id:group_xxx]` from line 1 as `CONSULT_THREAD_ID` - it threads through 2A → 3 → 4 → 6. Synthesize the proposals directly into the ADR.
 
 Prompt:
 
@@ -115,21 +116,21 @@ For each: risk / trigger / impact / mitigation_or_test.
 - If two or more reviewers report `Confidence: low` and no proposal produces testable acceptance criteria, stop with an Ambiguity Blocker (record conflicting readings and required user decision in the ADR; do not implement).
 - If proposals converge on one narrow strategy with no credible alternative on a high-risk or cross-module task, run one divergence-challenge consult on the same thread before synthesis.
 
-Then write an Approach Decision Record at `history/<YYYY-MM-DD>-adr-<topic>.md`. Every proposal must be accepted, rejected, or watched-risk — no silent discard. Required sections:
+Then write an Approach Decision Record at `history/<YYYY-MM-DD>-adr-<topic>.md`. Every proposal must be accepted, rejected, or watched-risk - no silent discard. Required sections:
 
-- **Scope Divergence Matrix** — for each scope question: proposal readings / selected interpretation / rationale / risk.
-- **Proposal Summary** — id / model / scope confidence / strategy / strengths / weaknesses / decision.
-- **Selected Approach** — single coherent core architecture (data model, control flow, API boundary, ownership, persistence, concurrency must come from one proposal).
-- **Frankenstein Guard** — if core choices mix across proposals, include an explicit compatibility proof. Otherwise the plan is invalid. Borrowing rejected proposals' tests, naming, validation, or error handling is fine.
-- **Rejected Alternatives** — for each: reason / evidence / watched-risk?
-- **Watched Risks** — risk / why accepted / what would change the call.
+- **Scope Divergence Matrix** - for each scope question: proposal readings / selected interpretation / rationale / risk.
+- **Proposal Summary** - id / model / scope confidence / strategy / strengths / weaknesses / decision.
+- **Selected Approach** - single coherent core architecture (data model, control flow, API boundary, ownership, persistence, concurrency must come from one proposal).
+- **Frankenstein Guard** - if core choices mix across proposals, include an explicit compatibility proof. Otherwise the plan is invalid. Borrowing rejected proposals' tests, naming, validation, or error handling is fine.
+- **Rejected Alternatives** - for each: reason / evidence / watched-risk?
+- **Watched Risks** - risk / why accepted / what would change the call.
 - **Evidence Checks Required Before/During Implementation**.
 
 **Scope-divergence rule:** if divergence affects public API, data loss, security, or migration behavior and no reading is clearly supported, stop with an Ambiguity Blocker.
 
 **Tiebreakers:** literal fit to raw task → safety/data integrity → acceptance criteria coverage → existing patterns → maintainability → testability → simplicity.
 
-### 2B — Plan artifact
+### 2B - Plan artifact
 
 Save `history/<YYYY-MM-DD>-plan-<topic>.md`. With `--consult-first`, link the context bundle and ADR at the top, and reflect the ADR in spec/criteria/tasks.
 
@@ -159,7 +160,7 @@ Required only when the change touches schema, on-disk format, or a public API co
 
 ## Tasks
 
-### Task 1 — <short description>
+### Task 1 - <short description>
 - **Files:** create/modify with exact paths (and line ranges for modify)
 - **Steps:** specific actions
 - **Code:**
@@ -169,15 +170,15 @@ Required only when the change touches schema, on-disk format, or a public API co
 - **Verifies acceptance criteria:** #1, #3
 ````
 
-Guidelines: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI — only what the spec demands. Include the actual code to be written under **Code:** — concrete snippets, not pseudocode or placeholders — so reviewers can verify correctness against the source context.
+Guidelines: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI - only what the spec demands. Include the actual code to be written under **Code:** only when it clarifies a public interface, tricky algorithm, schema, migration, or non-obvious control flow. Otherwise include exact files, behavioral steps, and tests so reviewers can verify the intended behavior without reviewing speculative implementation code.
 
 ## Phase 3: Plan review
 
-Review is mandatory unless `--no-review` was explicitly passed. Do not skip plan review because the task seems small, obvious, mechanical, or already validated locally. Reviewers receive the plan file and relevant source files; they must produce structured output.
+Review runs for `--review standard` and `--review full`. Skip Phase 3 and Phase 4 for `--review light`, `--review none`, or `--no-review`. Do not skip plan review under `standard` or `full` because the task seems small, obvious, mechanical, or already validated locally. Reviewers receive the plan file and relevant source files; they must produce structured output.
 
-Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <plan path>`, `-f <relevant source>`. With `--consult-first`, continue from `CONSULT_THREAD_ID` via `-t <id>` and additionally attach `-f <context bundle>`, `-f <ADR>`.
+Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <plan path>`, `-f <relevant source>`. With `--consult-first`, continue from `CONSULT_THREAD_ID` via `-t <id>` and additionally attach `-f <context bundle>`, `-f <ADR>`. Use the same selector resolution for `standard` and `full`; `full` differs by intent and should be chosen when the caller wants no review shortcuts or reviewer count reductions from future policy changes.
 
-Compose the prompt by including the `## ADR Check` section if and only if `--consult-first` was used; otherwise include `## Independent Alternative`. Send exactly one of these — do not include the bracket markers in the prompt sent to reviewers.
+Compose the prompt by including the `## ADR Check` section if and only if `--consult-first` was used; otherwise include `## Independent Alternative`. Send exactly one of these - do not include the bracket markers in the prompt sent to reviewers.
 
 Capture the new `[thread_id:group_xxx]` for `--rounds` and Phase 6.
 
@@ -221,14 +222,18 @@ For each issue:
 
 ## Phase 4: Verify findings, update ledger
 
-**Verify before adopting.** Treat every reviewer finding (including must-fix) as an unverified claim. Reviewer severity is advisory.
+Skip this phase when Phase 3 was skipped.
 
-For each finding, record the title, claim, suggested fix, and file/line references when available. Then pick the cheapest method that proves or disproves the claim:
+**Verify before adopting.** Treat every reviewer finding (including must-fix) as an unverified claim. Reviewer severity is advisory. Deduplicate findings by issue identity before verification.
 
-- **Plan claims** — re-read the cited plan section.
-- **Source claims** — read the cited file against current code.
-- **Library/API claims** — verify against library source or official docs. Use `gh search code` for usage patterns, `Grep` in `node_modules`/vendored deps, or a throwaway script in `/tmp/`.
-- **Premortem claims** — confirm the trigger actually occurs in the planned design.
+Verify all must-fix findings. Verify should-fix findings only when they affect correctness, compatibility, security, data integrity, or test adequacy. Record optional findings as notes unless they expose a concrete defect.
+
+For each verified finding, record the title, claim, suggested fix, and file/line references when available. Then pick the cheapest method that proves or disproves the claim:
+
+- **Plan claims** - re-read the cited plan section.
+- **Source claims** - read the cited file against current code.
+- **Library/API claims** - verify against library source or official docs. Use `gh search code` for usage patterns, `Grep` in `node_modules`/vendored deps, or a throwaway script in `/tmp/`.
+- **Premortem claims** - confirm the trigger actually occurs in the planned design.
 
 For each finding, report a verdict:
 
@@ -263,7 +268,7 @@ With `--consult-first`, findings claiming `better_rejected_approach` or `incompa
 Append a Feedback Ledger to the plan file:
 
 ```markdown
-## Feedback Ledger — Round N
+## Feedback Ledger - Round N
 
 - **finding-id:** <short kebab-case>
   - **reviewer(s):** <models>
@@ -286,7 +291,7 @@ Append a Feedback Ledger to the plan file:
 
 **Conflict tiebreakers** (in order): security on safety conflicts → spec coverage → existing patterns → simplicity.
 
-Any premortem finding rated `mitigation_sufficient: no` AND (`probability: high` OR `impact: high`) **must** be addressed before Phase 5 — change the plan, add a test-matrix row, or record explicitly in Watched Risks.
+Any premortem finding rated `mitigation_sufficient: no` AND (`probability: high` OR `impact: high`) **must** be addressed before Phase 5 - change the plan, add a test-matrix row, or record explicitly in Watched Risks.
 
 For every **DISCUSS** and **SPIN-OFF** recommendation, write 100-200 words in the ledger explaining the decision needed or the design work required.
 
@@ -296,10 +301,10 @@ For every **DISCUSS** and **SPIN-OFF** recommendation, write 100-200 words in th
 
 Implement tasks **in order**. The validation command must pass at the end.
 
-1. **Spec-first per task** — write or extend the test that proves the linked acceptance criterion **before** implementation. Confirm it fails. Write the code. Confirm it passes.
+1. **Spec-first per task** - write or extend the test that proves the linked acceptance criterion **before** implementation. Confirm it fails. Write the code. Confirm it passes.
 2. **Plan drift halts.** If implementation requires touching files outside the plan or deviating from the agreed approach, **stop**. Update the plan with the deviation and a one-line reason, then continue.
-3. **Validation** — run the validation command after every logical unit and again at the end. A task is **done** when (a) its tests pass, (b) its acceptance criteria are verified, and (c) validation is green for the touched scope.
-4. **Auto-commit at end** — when all tasks are done and validation is green, create a single commit for all implementation changes. Lowercase imperative subject; body explaining the why per `CLAUDE.md`. Phase 6 fixes go in separate commits (see below).
+3. **Validation** - run the validation command after every logical unit and again at the end. A task is **done** when (a) its tests pass, (b) its acceptance criteria are verified, and (c) validation is green for the touched scope.
+4. **Auto-commit at end** - when all tasks are done and validation is green, create a single commit for all implementation changes. Lowercase imperative subject; body explaining the why per `CLAUDE.md`. Phase 6 fixes go in separate commits (see below).
 
 ### Triggered debug protocol
 
@@ -340,7 +345,7 @@ If the third hypothesis fails, stop. Record blocker, hypotheses, and unanswered 
 
 ## Phase 6: Verification review
 
-Verification review is mandatory unless `--no-review` was explicitly passed. Do not skip verification because the task seems small, because tests passed, or because the implementation appears low-risk. The only non-flag exception is a strictly mechanical diff: renames, version bumps, comment/string typo fixes, or formatting/whitespace only. If any executable behavior, tests, public contract, generated output, or control flow changed, run Phase 6. When using the mechanical exception, state the exact reason in the Phase 7 summary.
+Verification review runs for `--review standard`, `--review full`, and `--review light`. Skip Phase 6 only for `--review none` or `--no-review`. Do not skip verification because the task seems small, because tests passed, or because the implementation appears low-risk. The only non-flag exception is a strictly mechanical diff: renames, version bumps, comment/string typo fixes, or formatting/whitespace only. If any executable behavior, tests, public contract, generated output, or control flow changed, run Phase 6. When using the mechanical exception, state the exact reason in the Phase 7 summary.
 
 Re-list changed files against `START_HEAD`:
 
@@ -351,19 +356,19 @@ git ls-files --others --exclude-standard
 
 If both empty, stop and report nothing implemented. Otherwise pass tracked files as `--diff-files <path>` and untracked as `-f <path>`. Skip binaries and lockfiles.
 
-Invoke `consult-llm` with `--task review`, `-t <group_thread_id>` from Phase 4, `--diff-base <START_HEAD>`, the file flags above, and `-f <plan path>`.
+Invoke `consult-llm` with `--task review`, `--diff-base <START_HEAD>`, the file flags above, and `-f <plan path>`. By default, do not reuse the Phase 3/4 thread for verification review; the useful evidence is the spec, feedback ledger, and real diff. Continue the earlier thread only for `--review full` or when verifying whether specific prior concerns were addressed.
 
 ```
-Verify this diff against the Behavioral Spec and Test Matrix in the plan file. You are a verifier, not an attacker — the goal is to confirm the implementation is correct, complete, and consistent with the plan and the surrounding system. Do not manufacture threat models for code that has no relevant surface.
+Verify this diff against the Behavioral Spec and Test Matrix in the plan file. You are a verifier, not an attacker - the goal is to confirm the implementation is correct, complete, and consistent with the plan and the surrounding system. Do not manufacture threat models for code that has no relevant surface.
 
 Apply these lenses in order. For each lens, either report findings or state it does not apply and why:
 
-1. **Spec conformance** — every acceptance criterion satisfied; invariants preserved on every path; no silent deviation from the plan.
-2. **Regression & compatibility** — existing callers, public APIs, output formats, ordering, error types, and performance characteristics unchanged unless the plan says so.
-3. **Edge cases & invariants** — boundary inputs, empty/null/missing, large inputs, error paths, resource lifecycle, concurrent access where the code is actually concurrent.
-4. **Test adequacy** — tests assert the important observable behavior, not just that code runs; acceptance criteria from the plan are covered.
-5. **Implementation quality** — unnecessary complexity, dead code, duplicated logic, brittle coupling, naming/patterns inconsistent with the surrounding code, simpler alternatives.
-6. **Security** (apply ONLY when the changed surface touches authn/authz, secrets, untrusted external input, parsing/serialization of untrusted data, file/path access, network boundaries, tenant isolation, crypto, dependency loading, or shared mutable state across trust boundaries) — auth bypass, injection, unsafe parsing, data exposure, race conditions with security impact.
+1. **Spec conformance** - every acceptance criterion satisfied; invariants preserved on every path; no silent deviation from the plan.
+2. **Regression & compatibility** - existing callers, public APIs, output formats, ordering, error types, and performance characteristics unchanged unless the plan says so.
+3. **Edge cases & invariants** - boundary inputs, empty/null/missing, large inputs, error paths, resource lifecycle, concurrent access where the code is actually concurrent.
+4. **Test adequacy** - tests assert the important observable behavior, not just that code runs; acceptance criteria from the plan are covered.
+5. **Implementation quality** - unnecessary complexity, dead code, duplicated logic, brittle coupling, naming/patterns inconsistent with the surrounding code, simpler alternatives.
+6. **Security** (apply ONLY when the changed surface touches authn/authz, secrets, untrusted external input, parsing/serialization of untrusted data, file/path access, network boundaries, tenant isolation, crypto, dependency loading, or shared mutable state across trust boundaries) - auth bypass, injection, unsafe parsing, data exposure, race conditions with security impact.
 
 A finding may be marked **Verified** only if it includes concrete evidence: a failing input, a failing or insufficient test, a diff/source citation showing a contract mismatch, or a minimal reproduction. Speculation goes under "Unverified Hypotheses" and may not be marked must-fix.
 
@@ -403,7 +408,7 @@ Output exactly:
 
 ### Verify each finding before fixing
 
-The `evidence` is a claim — run or read it. For each finding, record the title, claim, suggested fix, and file/line references when available. Then report:
+The `evidence` is a claim - run or read it. For each finding, record the title, claim, suggested fix, and file/line references when available. Then report:
 
 - **Verdict:** CONFIRMED | NOT AN ISSUE | INCORRECT | UNABLE TO VERIFY
 - **Likelihood:** REGULAR | OCCASIONAL | RARE | COSMIC RAY | N/A
@@ -437,7 +442,7 @@ Apply only `Verified Findings` that survived verification, are `must-fix`, have 
 
 Do **not** auto-fix `should-fix`, `Unverified Hypotheses`, `Test Coverage Gaps`, or `Maintainability Notes`. List them in the Phase 7 summary.
 
-If any `must-fix` cannot be fixed safely, stop and hand off — do not loop another review pass.
+If any `must-fix` cannot be fixed safely, stop and hand off - do not loop another review pass.
 
 ## Phase 7: Summary
 
@@ -476,5 +481,5 @@ Print:
 - <description, hypotheses tried, evidence question outstanding>
 
 **Commits:**
-- <sha> — <subject>
+- <sha> - <subject>
 ```
