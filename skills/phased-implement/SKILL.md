@@ -83,11 +83,22 @@ Otherwise generate via `consult-llm`. With `--consult-first`, mirror `implement`
 
 The generated plan must be a markdown file with a fenced YAML block defining the phase DAG (schema below). Write it to `$PLAN_DIR/plan.md`. Plan phases around coherent behavior and ownership. Do not add hard exclusions or TODO-only deferrals merely to avoid possible merge conflicts; LLM agents are expected to resolve ordinary conflicts during the serialized `/merge --keep` step.
 
+The generated plan must also preserve the useful planning rationale outside the YAML. After the YAML, add a `## Phase briefs` section with one subsection per phase. Each phase brief should be specific enough that a worktree agent can make design tradeoffs without rereading the full consult transcript. Include:
+
+- **Intent:** why this phase exists and what design pressure it addresses.
+- **Current problem:** what is wrong in the current code or architecture.
+- **Desired shape:** what the phase should move the code toward.
+- **Preserve:** behavior, contracts, and validation that must not change.
+- **Avoid:** tempting overreach, known bad implementations, and work owned by later phases.
+- **Dependencies:** what earlier phases are expected to provide.
+
+When synthesizing from consult output, copy the phase-specific insights into these briefs instead of collapsing them into a one-line YAML description. The YAML is scheduling metadata; the phase briefs are the implementation context.
+
 ### 1.b - Plan review
 
 Review must not reuse the planner's thread. Drop `-t`, pass the plan as `-f`, run multiple selectors in parallel: `consult-llm --task review -m <r1> -m <r2> -f $PLAN_DIR/plan.md`.
 
-Use the review structure from `implement` Phase 3 (Spec Check / Premortem / Plan Findings). Apply must-fix changes, append a Feedback Ledger to `plan.md`. Single round only.
+Use the review structure from `implement` Phase 3 (Spec Check / Premortem / Plan Findings). Apply must-fix changes, append a Feedback Ledger to `plan.md`. Single round only. If plan review adds or changes phase-specific rationale, update the matching `## Phase briefs` subsection as well as the YAML. Do not leave the prompt-critical detail only in the Feedback Ledger.
 
 ### 1.c - Plan visibility across worktrees
 
@@ -156,6 +167,7 @@ Hold the DAG and per-phase status in your own working memory. Use `workmux statu
 
    - If `implement_flags:` already contains `--review`, `--no-review`, `--consult-first`, or `--rounds`, pass it unchanged.
    - Otherwise prepend `--review light` before the listed `implement_flags:`.
+   - Before writing the prompt, read the phase's YAML entry, the matching `## Phase briefs` subsection, and any Feedback Ledger items that mention the phase. If there is no matching phase brief, include a short coordinator-written brief based on the plan, plan review, and captured consult output. Do not send a prompt that contains only the one-line description and acceptance criteria when richer phase-specific context exists.
 
    ```bash
    workmux add "<phase-id>" -b --base "$INTEGRATION_BRANCH" -P "$PLAN_DIR/prompts/<phase-id>.md"
@@ -237,6 +249,17 @@ not modify the master plan.
 - **acceptance criteria:**
   <verbatim excerpt from plan>
 
+## Phase brief
+
+Use this implementation context when making design tradeoffs. It preserves the
+rationale from planning and review that does not fit in the YAML scheduling
+metadata.
+
+<matching `## Phase briefs` subsection from plan.md, plus any Feedback Ledger
+items that directly mention this phase. If the plan lacks a matching brief,
+include a coordinator-written brief with Intent, Current problem, Desired shape,
+Preserve, Avoid, and Dependencies.>
+
 ## Master plan
 
 The master plan lives at `<plan-dir>/plan.md`. The `history/` directory is
@@ -246,7 +269,7 @@ context but do **not** modify it.
 
 ## What to do
 
-1. Invoke the `/implement` slash command exactly as `/implement <resolved_implement_flags...> <description>` to plan and implement this phase. Do not inline, summarize, emulate, or manually perform the `/implement` workflow yourself. If the slash command cannot be invoked, stop and write `status=failed` in the sentinel. The resolved flags include `--review light` unless this phase explicitly requested a different review mode. The /implement skill will write its own per-phase plan, skip plan review in light mode, run verification review unless review is disabled, implement it, and commit on success.
+1. Invoke the `/implement` slash command exactly as `/implement <resolved_implement_flags...> <description plus concise phase-brief summary>` to plan and implement this phase. The slash-command invocation must include enough of the phase brief that `/implement` receives the design intent, not only the YAML description. Do not inline, summarize, emulate, or manually perform the `/implement` workflow yourself. If the slash command cannot be invoked, stop and write `status=failed` in the sentinel. The resolved flags include `--review light` unless this phase explicitly requested a different review mode. The /implement skill will write its own per-phase plan, skip plan review in light mode, run verification review unless review is disabled, implement it, and commit on success.
 2. **Do not initiate `/merge` yourself.** After your work is committed and
    the sentinel is written (step 3), wait. The coordinator will send you
    `/merge --keep` as an explicit instruction once it has verified your
