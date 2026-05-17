@@ -130,9 +130,13 @@ Then write an Approach Decision Record at `history/<YYYY-MM-DD>-adr-<topic>.md`.
 
 **Tiebreakers:** literal fit to raw task → safety/data integrity → acceptance criteria coverage → existing patterns → maintainability → testability → simplicity.
 
-### 2B - Plan artifact
+### 2B - Plan or implementation note
 
-Save `history/<YYYY-MM-DD>-plan-<topic>.md`. With `--consult-first`, link the context bundle and ADR at the top, and reflect the ADR in spec/criteria/tasks.
+For `--review standard` and `--review full`, save `history/<YYYY-MM-DD>-plan-<topic>.md`. With `--consult-first`, link the context bundle and ADR at the top, and reflect the ADR in spec/criteria/tasks.
+
+For `--review light`, do not write a review-grade plan artifact. Keep planning compact: write only `history/<YYYY-MM-DD>-note-<topic>.md` with the goal, assumptions, acceptance checks, validation command, and task checklist needed to implement safely. If the task comes from a larger workflow whose prompt already names a reviewed parent plan, cite that parent plan in the note instead of duplicating it. Use this note for implementation tracking and Phase 6 context.
+
+For `--review none` or `--no-review`, write a compact note only if it is needed for implementation tracking, debugging, or the final summary.
 
 ````markdown
 # <Feature> Plan
@@ -170,11 +174,28 @@ Required only when the change touches schema, on-disk format, or a public API co
 - **Verifies acceptance criteria:** #1, #3
 ````
 
-Guidelines: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI - only what the spec demands. Include the actual code to be written under **Code:** only when it clarifies a public interface, tricky algorithm, schema, migration, or non-obvious control flow. Otherwise include exact files, behavioral steps, and tests so reviewers can verify the intended behavior without reviewing speculative implementation code.
+Guidelines for `standard` and `full`: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI - only what the spec demands. Include the actual code to be written under **Code:** only when it clarifies a public interface, tricky algorithm, schema, migration, or non-obvious control flow. Otherwise include exact files, behavioral steps, and tests so reviewers can verify the intended behavior without reviewing speculative implementation code.
+
+`light` note format:
+
+```markdown
+# <Feature> Implementation Note
+
+**Goal:** <one sentence>
+**Reviewed parent plan:** <path, or n/a>
+**Assumptions:** <short list>
+**Acceptance checks:** <observable checks>
+**Validation command:** `<e.g. just check>`
+
+## Checklist
+- <small implementation step>
+```
+
+Do not expand the light note into the full Behavioral Spec, Test Matrix, Rollback, and detailed task template unless the implementation discovers plan drift that needs durable tracking.
 
 ## Phase 3: Plan review
 
-Review runs for `--review standard` and `--review full`. Skip Phase 3 and Phase 4 for `--review light`, `--review none`, or `--no-review`. Do not skip plan review under `standard` or `full` because the task seems small, obvious, mechanical, or already validated locally. Reviewers receive the plan file and relevant source files; they must produce structured output.
+Review runs for `--review standard` and `--review full`. Skip Phase 3 and Phase 4 for `--review light`, `--review none`, or `--no-review`. Do not skip plan review under `standard` or `full` because the task seems small, obvious, mechanical, or already validated locally. Reviewers receive the review-grade plan file and relevant source files; they must produce structured output.
 
 Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <plan path>`, `-f <relevant source>`. With `--consult-first`, continue from `CONSULT_THREAD_ID` via `-t <id>` and additionally attach `-f <context bundle>`, `-f <ADR>`. Use the same selector resolution for `standard` and `full`; `full` differs by intent and should be chosen when the caller wants no review shortcuts or reviewer count reductions from future policy changes.
 
@@ -302,7 +323,7 @@ For every **DISCUSS** and **SPIN-OFF** recommendation, write 100-200 words in th
 Implement tasks **in order**. The validation command must pass at the end.
 
 1. **Spec-first per task** - write or extend the test that proves the linked acceptance criterion **before** implementation. Confirm it fails. Write the code. Confirm it passes.
-2. **Plan drift halts.** If implementation requires touching files outside the plan or deviating from the agreed approach, **stop**. Update the plan with the deviation and a one-line reason, then continue.
+2. **Plan drift halts.** If implementation requires touching files outside the plan or note, or deviating from the agreed approach, **stop**. Update the plan or note with the deviation and a one-line reason, then continue.
 3. **Validation** - run the validation command after every logical unit and again at the end. A task is **done** when (a) its tests pass, (b) its acceptance criteria are verified, and (c) validation is green for the touched scope.
 4. **Auto-commit at end** - when all tasks are done and validation is green, create a single commit for all implementation changes. Lowercase imperative subject; body explaining the why per `CLAUDE.md`. Phase 6 fixes go in separate commits (see below).
 
@@ -310,7 +331,7 @@ Implement tasks **in order**. The validation command must pass at the end.
 
 Activate only when **the same check fails twice**, OR a fix would require changing the plan/spec, OR the failure cause is unclear. Do not formalize debugging for ordinary fixes.
 
-For each blocked attempt, append to a scratch section at the bottom of the plan file (do not commit):
+For each blocked attempt, append to a scratch section at the bottom of the plan or note file (do not commit):
 
 ```
 - failing command:
@@ -356,10 +377,10 @@ git ls-files --others --exclude-standard
 
 If both empty, stop and report nothing implemented. Otherwise pass tracked files as `--diff-files <path>` and untracked as `-f <path>`. Skip binaries and lockfiles.
 
-Invoke `consult-llm` with `--task review`, `--diff-base <START_HEAD>`, the file flags above, and `-f <plan path>`. By default, do not reuse the Phase 3/4 thread for verification review; the useful evidence is the spec, feedback ledger, and real diff. Continue the earlier thread only for `--review full` or when verifying whether specific prior concerns were addressed.
+Invoke `consult-llm` with `--task review`, `--diff-base <START_HEAD>`, the file flags above, and `-f <plan-or-note path>`. In `light` mode, pass the compact note plus any reviewed parent plan named by the invoking prompt. By default, do not reuse the Phase 3/4 thread for verification review; the useful evidence is the spec or note, feedback ledger when present, and real diff. Continue the earlier thread only for `--review full` or when verifying whether specific prior concerns were addressed.
 
 ```
-Verify this diff against the Behavioral Spec and Test Matrix in the plan file. You are a verifier, not an attacker - the goal is to confirm the implementation is correct, complete, and consistent with the plan and the surrounding system. Do not manufacture threat models for code that has no relevant surface.
+Verify this diff against the Behavioral Spec and Test Matrix in the plan file, or against the compact implementation note when running in `light` mode. You are a verifier, not an attacker - the goal is to confirm the implementation is correct, complete, and consistent with the recorded intent and the surrounding system. Do not manufacture threat models for code that has no relevant surface.
 
 Apply these lenses in order. For each lens, either report findings or state it does not apply and why:
 
@@ -455,7 +476,7 @@ Print:
 **Consult-first:** yes | no
 **Context bundle:** history/<date>-context-<topic>.md | n/a
 **ADR:** history/<date>-adr-<topic>.md | n/a
-**Plan:** history/<date>-plan-<topic>.md
+**Plan or note:** history/<date>-plan-<topic>.md | history/<date>-note-<topic>.md | n/a
 **Diff base:** <START_HEAD short sha>
 **Review phases run:** Phase 3 [yes | skipped] · Phase 6 [yes | skipped]
 
