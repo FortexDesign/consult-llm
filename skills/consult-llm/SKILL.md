@@ -75,6 +75,22 @@ Ask neutral, open-ended questions. Do not suggest specific solutions in the prom
 
 Run `consult-llm --help` for the authoritative flag list.
 
+## File context (`-f`) best practices
+
+The consulted LLM has no access to your conversation history. Anything
+it needs - source files, logs, command output, traces, timelines,
+error messages - must be attached with `-f`.
+
+- **Include conversation artifacts.** If the current session already
+  produced diagnostic output relevant to the question (log excerpts,
+  traces, reproduction steps, command output), attach it as a temp
+  file. Prefer raw evidence over prose summaries when both exist.
+- **Re-run the original command** piping to a temp file
+  (`cmd > /tmp/artifact.txt`) instead of writing output from memory.
+  This is cheaper, faster, and preserves the exact output.
+- Source files and diagnostic artifacts are both first-class `-f`
+  inputs. Do not limit context gathering to source code.
+
 ## Per-model runs
 
 Use `--run` when a workflow needs to query multiple models in parallel with **different prompt bodies**. Do not use it for ordinary multi-model calls where the same prompt goes to every model — repeat `-m` for that.

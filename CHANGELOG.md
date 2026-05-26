@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.13 (2026-05-26)
+
+- `-f` file context guidance now tells agents to attach conversation artifacts (logs, traces, command output) as temp files, not just source code. Agents that already have diagnostic output in their session will forward the raw evidence instead of paraphrasing it in the prompt
+- `phased-implement`: phase briefs from earlier phases are now included in subsequent phase prompts so later agents have implementation context without re-reading all prior files
+
 ## v3.0.12 (2026-05-15)
 
 - Gemini 2.5 API calls no longer receive Gemini 3 thinking configuration
