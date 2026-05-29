@@ -1,5 +1,17 @@
 use crate::config;
+use crate::config::types::Backend;
 use crate::models::{PROVIDERS, Provider};
+
+fn backend_name_for_model(cfg: &config::Config, model: &str) -> &'static str {
+    Provider::from_model(model)
+        .map(|p| cfg.backend_for(p).as_str())
+        .or_else(|| {
+            Provider::from_cursor_model(model).and_then(|p| {
+                (cfg.backend_for(p) == &Backend::CursorCli).then_some(Backend::CursorCli.as_str())
+            })
+        })
+        .unwrap_or("unknown")
+}
 
 pub fn run() -> anyhow::Result<()> {
     let (cfg, registry) = config::init_config().map_err(|e| anyhow::anyhow!(e.to_string()))?;
@@ -13,9 +25,7 @@ pub fn run() -> anyhow::Result<()> {
     }
     println!("\nAllowed models:");
     for m in &cfg.allowed_models {
-        let backend = Provider::from_model(m)
-            .map(|p| cfg.backend_for(p).as_str())
-            .unwrap_or("unknown");
+        let backend = backend_name_for_model(&cfg, m);
         println!("  {m} ({backend})");
     }
     println!("\nDefault models (ordered; duplicates are intentional):");

@@ -75,6 +75,7 @@ pub enum ApiProtocol {
 /// (unless the provider introduces a brand-new `ApiProtocol`, which adds one match arm in `llm.rs`).
 pub struct ProviderSpec {
     pub provider: Provider,
+    pub cursor_model_prefixes: &'static [&'static str],
     /// Lowercase identifier used for logging, YAML keys, and config key generation (e.g. "openai").
     pub id: &'static str,
     /// Prefixes that identify this provider's models (e.g. &["gpt-", "o3-"]).
@@ -130,6 +131,7 @@ pub const ALL_PROVIDERS: &[Provider] = &[
 pub static PROVIDERS: &[ProviderSpec] = &[
     ProviderSpec {
         provider: Provider::Gemini,
+        cursor_model_prefixes: &["gemini-"],
         id: "gemini",
         model_prefixes: &["gemini-"],
         api_base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai/"),
@@ -163,6 +165,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
     },
     ProviderSpec {
         provider: Provider::DeepSeek,
+        cursor_model_prefixes: &[],
         id: "deepseek",
         model_prefixes: &["deepseek-"],
         api_base_url: Some("https://api.deepseek.com"),
@@ -185,6 +188,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
     },
     ProviderSpec {
         provider: Provider::OpenAI,
+        cursor_model_prefixes: &["gpt-", "composer-", "auto", "kimi-"],
         id: "openai",
         model_prefixes: &["gpt-"],
         api_base_url: None,
@@ -219,6 +223,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
     },
     ProviderSpec {
         provider: Provider::MiniMax,
+        cursor_model_prefixes: &[],
         id: "minimax",
         model_prefixes: &["MiniMax-"],
         api_base_url: Some("https://api.minimax.io/v1"),
@@ -244,6 +249,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
     },
     ProviderSpec {
         provider: Provider::Anthropic,
+        cursor_model_prefixes: &["claude-"],
         id: "anthropic",
         model_prefixes: &["claude-"],
         api_base_url: Some("https://api.anthropic.com"),
@@ -255,7 +261,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api"],
+        allowed_backends: &["api", "cursor-cli"],
         opencode_env: "CONSULT_LLM_OPENCODE_ANTHROPIC_PROVIDER",
         default_opencode_provider: "anthropic",
         reasoning_effort_env: None,
@@ -263,6 +269,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
     },
     ProviderSpec {
         provider: Provider::Grok,
+        cursor_model_prefixes: &["grok-"],
         id: "grok",
         model_prefixes: &["grok-"],
         api_base_url: Some("https://api.x.ai/v1"),
@@ -277,13 +284,31 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api"],
+        allowed_backends: &["api", "cursor-cli"],
         opencode_env: "CONSULT_LLM_OPENCODE_GROK_PROVIDER",
         default_opencode_provider: "xai",
         reasoning_effort_env: None,
         extra_args_env: None,
     },
 ];
+
+fn model_matches_prefix(model: &str, prefix: &str) -> bool {
+    model == prefix || model.starts_with(prefix)
+}
+
+fn provider_from_prefixes(
+    model: &str,
+    prefixes: impl Fn(&ProviderSpec) -> &'static [&'static str],
+) -> Option<Provider> {
+    PROVIDERS
+        .iter()
+        .find(|spec| {
+            prefixes(spec)
+                .iter()
+                .any(|p| model_matches_prefix(model, p))
+        })
+        .map(|spec| spec.provider)
+}
 
 impl Provider {
     /// Look up the static spec for this provider.
@@ -296,10 +321,12 @@ impl Provider {
 
     /// Determine the provider for a model ID based on its prefix.
     pub fn from_model(model: &str) -> Option<Self> {
-        PROVIDERS
-            .iter()
-            .find(|spec| spec.model_prefixes.iter().any(|p| model.starts_with(p)))
-            .map(|spec| spec.provider)
+        provider_from_prefixes(model, |spec| spec.model_prefixes)
+    }
+
+    /// Determine the provider for a cursor-agent model ID based on its prefix.
+    pub fn from_cursor_model(model: &str) -> Option<Self> {
+        provider_from_prefixes(model, |spec| spec.cursor_model_prefixes)
     }
 
     /// Look up a provider by its short id (e.g. "openai", "gemini"). Used by config-file
@@ -342,6 +369,17 @@ pub fn selector_priorities() -> impl Iterator<Item = (&'static str, &'static [&'
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    fn assert_prefixes_do_not_overlap(prefixes: Vec<(&str, &str)>, name: &str) {
+        for (i, (id_a, pa)) in prefixes.iter().enumerate() {
+            for (id_b, pb) in &prefixes[i + 1..] {
+                assert!(
+                    !model_matches_prefix(pa, pb) && !model_matches_prefix(pb, pa),
+                    "{name} prefixes overlap: {id_a}:{pa:?} vs {id_b}:{pb:?}"
+                );
+            }
+        }
+    }
 
     /// Golden table mapping every builtin model to its expected provider.
     /// This is the stability anchor for the `provider-registry` phase: if
@@ -386,6 +424,24 @@ mod tests {
     }
 
     #[test]
+    fn cursor_model_to_provider_golden() {
+        let expected: &[(&str, Provider)] = &[
+            ("gemini-3.1-pro", Provider::Gemini),
+            ("gpt-5.5-high", Provider::OpenAI),
+            ("gpt-5.3-codex", Provider::OpenAI),
+            ("composer-2.5", Provider::OpenAI),
+            ("auto", Provider::OpenAI),
+            ("kimi-k2.5", Provider::OpenAI),
+            ("claude-4.5-sonnet", Provider::Anthropic),
+            ("grok-build-0.1", Provider::Grok),
+        ];
+
+        for (model, want) in expected {
+            assert_eq!(Provider::from_cursor_model(model), Some(*want));
+        }
+    }
+
+    #[test]
     fn google_thinking_config_applies_only_to_gemini_3_family() {
         let policy = OpenAiExtraBody::GoogleThinkingConfig;
         assert!(policy.applies_to_model("gemini-3"));
@@ -420,6 +476,9 @@ mod tests {
             for m in spec.builtin_models {
                 assert!(models.insert(*m), "duplicate builtin model {m:?}");
             }
+            for prefix in spec.cursor_model_prefixes {
+                assert!(!prefix.is_empty());
+            }
             for sm in spec.selector_priorities {
                 assert!(
                     spec.builtin_models.contains(sm),
@@ -438,18 +497,20 @@ mod tests {
         }
 
         // Provider model prefixes must not overlap so `Provider::from_model` is unambiguous.
-        let prefixes: Vec<(&str, &str)> = PROVIDERS
-            .iter()
-            .flat_map(|s| s.model_prefixes.iter().map(move |p| (s.id, *p)))
-            .collect();
-        for (i, (id_a, pa)) in prefixes.iter().enumerate() {
-            for (id_b, pb) in &prefixes[i + 1..] {
-                assert!(
-                    !pa.starts_with(pb) && !pb.starts_with(pa),
-                    "model prefixes overlap: {id_a}:{pa:?} vs {id_b}:{pb:?}"
-                );
-            }
-        }
+        assert_prefixes_do_not_overlap(
+            PROVIDERS
+                .iter()
+                .flat_map(|s| s.model_prefixes.iter().map(move |p| (s.id, *p)))
+                .collect(),
+            "model",
+        );
+        assert_prefixes_do_not_overlap(
+            PROVIDERS
+                .iter()
+                .flat_map(|s| s.cursor_model_prefixes.iter().map(move |p| (s.id, *p)))
+                .collect(),
+            "cursor model",
+        );
 
         for p in ALL_PROVIDERS {
             assert_eq!(Provider::from_id(p.spec().id), Some(*p));

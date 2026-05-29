@@ -2,10 +2,50 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::catalog::{ModelRegistry, build_model_catalog};
+use crate::executors::cursor_models::{ModelList, available_models as cursor_available_models};
 use crate::logger::log_to_file;
 use crate::models::{Provider, all_builtin_models};
 
 use super::super::types::{Backend, ConfigError, ProviderRuntimeConfig};
+
+fn cursor_provider_for_model(
+    model: &str,
+    providers: &HashMap<Provider, ProviderRuntimeConfig>,
+) -> Option<Provider> {
+    let provider = Provider::from_cursor_model(model)?;
+    providers
+        .get(&provider)
+        .is_some_and(|cfg| cfg.backend == Backend::CursorCli)
+        .then_some(provider)
+}
+
+fn cursor_catalog_models(providers: &HashMap<Provider, ProviderRuntimeConfig>) -> Vec<String> {
+    if !providers
+        .values()
+        .any(|cfg| cfg.backend == Backend::CursorCli)
+    {
+        return Vec::new();
+    }
+
+    let list = cursor_available_models();
+    let models = match list {
+        ModelList::Fresh(models) | ModelList::Stale(models) => models,
+        ModelList::Unavailable => return Vec::new(),
+    };
+
+    models
+        .into_iter()
+        .filter(|model| cursor_provider_for_model(model, providers).is_some())
+        .collect()
+}
+
+fn append_unique(models: &mut Vec<String>, additions: impl IntoIterator<Item = String>) {
+    for model in additions {
+        if !models.contains(&model) {
+            models.push(model);
+        }
+    }
+}
 
 pub fn filter_by_availability(
     models: &[String],
@@ -13,17 +53,21 @@ pub fn filter_by_availability(
 ) -> Vec<String> {
     models
         .iter()
-        .filter(|model| match Provider::from_model(model) {
-            Some(provider) => {
-                let cfg = &providers[&provider];
-                // CLI backends don't need API keys
-                cfg.backend != Backend::Api || cfg.api_key.is_some()
-            }
-            None => {
-                log_to_file(&format!(
-                    "WARNING: dropping model '{model}' — unrecognized provider prefix"
-                ));
-                false
+        .filter(|model| {
+            let provider =
+                Provider::from_model(model).or_else(|| cursor_provider_for_model(model, providers));
+            match provider {
+                Some(provider) => {
+                    let cfg = &providers[&provider];
+                    // CLI backends don't need API keys
+                    cfg.backend != Backend::Api || cfg.api_key.is_some()
+                }
+                None => {
+                    log_to_file(&format!(
+                        "WARNING: dropping model '{model}' - unrecognized provider prefix"
+                    ));
+                    false
+                }
             }
         })
         .cloned()
@@ -34,9 +78,11 @@ pub fn resolve_enabled_models(
     env: &impl Fn(&str) -> Option<String>,
     providers: &HashMap<Provider, ProviderRuntimeConfig>,
 ) -> Result<Vec<String>, ConfigError> {
-    let builtin = all_builtin_models();
+    let mut builtin: Vec<String> = all_builtin_models().iter().map(|m| m.to_string()).collect();
+    append_unique(&mut builtin, cursor_catalog_models(providers));
+    let builtin_refs: Vec<&str> = builtin.iter().map(|m| m.as_str()).collect();
     let catalog_models = build_model_catalog(
-        &builtin,
+        &builtin_refs,
         env("CONSULT_LLM_EXTRA_MODELS").as_deref(),
         env("CONSULT_LLM_ALLOWED_MODELS").as_deref(),
     );
@@ -127,6 +173,48 @@ mod tests {
         ]);
         let result = filter_by_availability(&models, &providers);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_filter_by_availability_cursor_model_requires_cursor_backend() {
+        let models = vec!["gemini-3.1-pro".into(), "auto".into()];
+        let api_providers = make_providers(&[
+            (Provider::Gemini, Some("key"), Backend::Api),
+            (Provider::OpenAI, Some("key"), Backend::Api),
+            (Provider::DeepSeek, None, Backend::Api),
+            (Provider::MiniMax, None, Backend::Api),
+        ]);
+        assert_eq!(
+            filter_by_availability(&models, &api_providers),
+            vec!["gemini-3.1-pro".to_string()]
+        );
+
+        let cursor_providers = make_providers(&[
+            (Provider::Gemini, None, Backend::CursorCli),
+            (Provider::OpenAI, None, Backend::CursorCli),
+            (Provider::DeepSeek, None, Backend::Api),
+            (Provider::MiniMax, None, Backend::Api),
+        ]);
+        assert_eq!(filter_by_availability(&models, &cursor_providers), models);
+    }
+
+    #[test]
+    fn test_append_unique_adds_new_models_once() {
+        let mut models = vec!["gemini-3.1-pro-preview".to_string()];
+        append_unique(
+            &mut models,
+            [
+                "gemini-3.1-pro".to_string(),
+                "gemini-3.1-pro-preview".to_string(),
+            ],
+        );
+        assert_eq!(
+            models,
+            vec![
+                "gemini-3.1-pro-preview".to_string(),
+                "gemini-3.1-pro".to_string(),
+            ]
+        );
     }
 
     #[test]

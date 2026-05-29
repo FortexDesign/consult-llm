@@ -316,6 +316,7 @@ mod tests {
             "gpt-5.5-extra-high".into(),
             "gpt-5.4-low".into(),
             "gpt-5.4-medium".into(),
+            "gemini-3.1-pro".into(),
             "claude-4.5-sonnet".into(),
         ]
     }
@@ -374,6 +375,15 @@ mod tests {
         assert_eq!(
             resolve_model("gpt-5.5-high", "gpt-5.5", &list).unwrap(),
             "gpt-5.5-high"
+        );
+    }
+
+    #[test]
+    fn resolve_cursor_only_gemini_model() {
+        let list = ModelList::Fresh(fixture_models());
+        assert_eq!(
+            resolve_model("gemini-3.1-pro", "gemini-3.1-pro", &list).unwrap(),
+            "gemini-3.1-pro"
         );
     }
 
