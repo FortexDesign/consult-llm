@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.14 (2026-06-06)
+
+- Cursor-specific model names (`auto`, `composer`, `kimi`) are now accepted in the enabled model catalog when using the `cursor-cli` backend, letting you select them directly as model selectors
+- The `consult-llm models` command now reports `cursor-cli` as the backend for dynamically accepted cursor model IDs
+
 ## v3.0.13 (2026-05-26)
 
 - `-f` file context guidance now tells agents to attach conversation artifacts (logs, traces, command output) as temp files, not just source code. Agents that already have diagnostic output in their session will forward the raw evidence instead of paraphrasing it in the prompt
