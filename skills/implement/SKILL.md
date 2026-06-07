@@ -67,7 +67,6 @@ Optional:
 
 - external proposal capture
 - external review capture
-- sideagent prompt capture
 - debug notes
 
 Do not create a feedback ledger. When review changes a plan, update the plan directly. Add a short `Review changes applied` section only when it helps explain material changes.
@@ -291,9 +290,9 @@ Rules:
 
 ### Sideagent execution
 
-For `executor: sideagent`, write an execution prompt file under `history/` and run `sideagent` on it. If the exact sideagent profile is unspecified, use the configured default profile. Do not invent a profile.
+For `executor: sideagent`, pass the execution prompt directly to `sideagent` on stdin. Do not write the sideagent prompt to `history/` or any other file. If the exact sideagent profile is unspecified, use the configured default profile. Do not invent a profile.
 
-Prompt file format:
+Prompt format:
 
 ```markdown
 # Sideagent Execution Prompt
