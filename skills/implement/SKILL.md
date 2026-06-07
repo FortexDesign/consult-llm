@@ -309,8 +309,6 @@ You are executing one bounded implementation plan in this repository.
 - If a small correction is obvious, update the plan directly and continue.
 - If a correction changes design or scope, stop and report the blocker.
 - Do not ask the user questions.
-- Do not use plan mode.
-- Do not use em dashes.
 - Do not overwrite user changes.
 - Run the validation commands.
 - Commit when validation passes and no blockers remain.
