@@ -311,25 +311,27 @@ Use the existing merge skill in the phase worktree:
 
 At a high level:
 
-1. Capture the phase tip from the sentinel before merge: `head_commit`.
+1. Capture the phase tip from the sentinel before merge for diagnostics: `head_commit`.
 2. Send `/merge --keep` to the phase worktree agent with workmux.
 3. Wait for merge completion.
-4. Check the integration branch history.
-5. Verify the phase tip is an ancestor of the integration branch:
+4. Because `/merge` may rebase the phase before merging, read the worktree tip after `/merge --keep` returns. The pre-merge `head_commit` from the sentinel is not a stable ancestry token.
+5. Verify the post-merge worktree tip is an ancestor of the integration branch:
 
    ```bash
-   git merge-base --is-ancestor <phase-head-commit> <integration-branch>
+   POST_MERGE_TIP=$(workmux run <phase-id> -- git rev-parse HEAD)
+   git merge-base --is-ancestor "$POST_MERGE_TIP" <integration-branch>
    ```
 
-6. If ancestry verification passes, remove the workmux worktree:
+6. If ancestry verification passes, record `POST_MERGE_TIP` as the merged phase commit and remove the workmux worktree:
 
    ```bash
    workmux remove <phase-id>
    ```
 
-7. If ancestry verification fails, stop merging and report the phase as blocked.
+7. If ancestry verification fails, keep the worktree, stop merging, and report the phase as blocked.
 
-Do not use `workmux remove` before the merge and ancestry verification succeed.
+Do not use `workmux remove` before the merge and post-merge ancestry verification succeed.
+The sentinel's pre-merge `head_commit` is for diagnostics only, not ancestry verification.
 
 ## Phase E: continue the DAG
 
@@ -399,7 +401,7 @@ integration_review: none | skipped | passed | failed
 
 ## Merges
 
-- <phase>: merged and ancestry verified against `<phase-head-commit>`
+- <phase>: merged and ancestry verified against post-merge tip `<post-merge-tip>`
 
 ## Blockers
 
