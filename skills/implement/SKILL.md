@@ -69,6 +69,8 @@ Optional:
 - external review capture
 - debug notes
 
+Artifacts under `history/` are workflow records, not repository changes. Do not stage or commit them, even when they are required for the workflow or requested as sentinels. Leave them as uncommitted files unless the user explicitly asks to commit history artifacts.
+
 Do not create a feedback ledger. When review changes a plan, update the plan directly. Add a short `Review changes applied` section only when it helps explain material changes.
 
 ## Phase A: snapshot and context
@@ -310,8 +312,7 @@ You are executing one bounded implementation plan in this repository.
 - Do not ask the user questions.
 - Do not overwrite user changes.
 - Run the validation commands.
-- Commit when validation passes and no blockers remain.
-- Use lowercase imperative commit subjects with a body explaining why.
+- Do not stage or commit `history/` artifacts.
 - Write the result sentinel described below.
 
 ## Task
@@ -391,7 +392,7 @@ validation_status: passed | failed | skipped
 - <blocker or none>
 ```
 
-Update `end_commit` and `commit` after committing.
+Update `end_commit` and `commit` after committing. This update still stays uncommitted when the sentinel is under `history/`.
 
 ## Phase F: commit and summarize
 
@@ -399,13 +400,7 @@ Commit when validation passes, verification passes, no blockers remain, and you 
 
 Commit rules:
 
-- Automatically commit when confident.
-- Use lowercase imperative mood.
-- Keep the subject concise.
-- Do not use conventional commit prefixes.
-- Use a detailed body explaining why, key implementation details, and any behavior differences.
-- Wrap body lines at 80 characters.
-- Do not use `Closes #123`. Use `References` if an issue needs mention.
+- Do not stage or commit `history/` artifacts.
 
 After committing, print the final summary:
 
