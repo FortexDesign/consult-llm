@@ -24,7 +24,7 @@ You are a coordinator. You **never** edit source files yourself. You write a mas
 - `--consult-first` - gather independent reviewer proposals before drafting the master plan (mirrors `implement` skill's Phase 2A).
 - `--<selector>` (e.g. `--gemini`, `--openai`) - reviewer selection, repeatable. Default: all available selectors from `consult-llm models`.
 
-**Per-phase flags** - declared in the plan's YAML `implement_flags:` list. The coordinator injects `--review light` into each phase unless `implement_flags:` already contains `--review`, `--no-review`, `--consult-first`, or `--rounds`. Plan authors can request stricter review by setting `--review standard` or `--review full` in `implement_flags:`.
+**Per-phase flags** - declared in the plan's YAML `implement_flags:` list. The coordinator injects `--review light` into each phase unless `implement_flags:` already contains `--review`, `--no-review`, `--consult-first`, or `--rounds`. Plan authors can request richer planning by setting `--review standard` or `--review full` in `implement_flags:`. Non-light phases must use consulted rich implementation plans with concrete tasks and code so a cheaper implementation agent can execute the phase from the plan with minimal design judgment.
 
 **Other flags:**
 
@@ -38,7 +38,7 @@ Strip flags from arguments to get the task description.
 - **`workmux done` ≠ success.** A phase is successful only when its agent has written a result sentinel reporting `status=success`. See "Phase result sentinel" below.
 - **Merges are serialized.** At most one `/merge` in flight globally.
 - **Conflicts are acceptable.** Phase boundaries prevent duplicate feature ownership, not every textual conflict. Do not forbid a phase from touching a file just because another phase may also edit it; only split or sequence phases when they would implement the same behavior or require incompatible designs.
-- **Per-phase review is light by default.** The reviewed master plan covers cross-phase design, so routine phases skip `/implement` plan review but keep `/implement` verification review. Use per-phase `implement_flags:` for `--review standard` or `--review full` when a phase needs its own plan review.
+- **Per-phase review is light by default.** The reviewed master plan covers cross-phase design, so routine phases skip `/implement` plan review but keep `/implement` verification review. Use per-phase `implement_flags:` for `--review standard` or `--review full` when a phase needs a rich, externally reviewed implementation plan. Those non-light phase plans must contain concrete code blocks and task steps precise enough for a cheaper agent to implement without re-solving the design.
 - **Drain before dispatch.** `wait --any` returns on the first transition only. Before spawning, re-check `workmux status` and merge every handle in `done` - siblings that finished in the same window must not be left for the next wait.
 - **`/merge` is invoked with `--keep`** so the coordinator can verify success before destroying the worktree. Coordinator runs `workmux remove <handle>` after verification.
 - **Dependents only spawn when all predecessors are `merged`.** No exceptions.
@@ -93,6 +93,19 @@ The generated plan must also preserve the useful planning rationale outside the 
 - **Dependencies:** what earlier phases are expected to provide.
 
 When synthesizing from consult output, copy the phase-specific insights into these briefs instead of collapsing them into a one-line YAML description. The YAML is scheduling metadata; the phase briefs are the implementation context.
+
+### Rich phase implementation plans
+
+For any phase whose `implement_flags:` explicitly select `--review standard` or `--review full`, the coordinator must ensure the phase prompt asks `/implement` to produce a rich phase implementation plan before editing source. The rich phase plan is not just a checklist. It must be suitable for execution by a cheaper implementation agent and include:
+
+- Concrete source and test files with exact paths and relevant line ranges when modifying existing files.
+- Small ordered tasks tied to acceptance criteria.
+- Test-first steps, including the expected failing check before implementation.
+- Actual code blocks for every non-trivial source or test change: public interfaces, structs, enums, functions, parsing logic, control flow, migrations, fixtures, and command wiring. Do not use placeholders.
+- Validation commands and commit commands consistent with the repository instructions.
+- Explicit constraints from the master plan, phase brief, and reviewed feedback ledger.
+
+Light phases keep the compact `/implement --review light` note flow. Do not inflate light phases into rich code-bearing plans unless their YAML flags request `standard` or `full` review.
 
 ### 1.b - Plan review
 
@@ -167,7 +180,9 @@ Hold the DAG and per-phase status in your own working memory. Use `workmux statu
 
    - If `implement_flags:` already contains `--review`, `--no-review`, `--consult-first`, or `--rounds`, pass it unchanged.
    - Otherwise prepend `--review light` before the listed `implement_flags:`.
+   - Classify the phase as `light` when the resolved flags contain `--review light`, `--review none`, or `--no-review`. Classify it as `rich` when the resolved flags contain `--review standard` or `--review full`.
    - Before writing the prompt, read the phase's YAML entry, the matching `## Phase briefs` subsection, and any Feedback Ledger items that mention the phase. If there is no matching phase brief, include a short coordinator-written brief based on the plan, plan review, and captured consult output. Do not send a prompt that contains only the one-line description and acceptance criteria when richer phase-specific context exists.
+   - For `rich` phases, include the rich-plan requirement in the prompt: `/implement` must consult reviewers for the phase plan and the resulting plan must include concrete tasks plus actual code blocks for non-trivial implementation and tests before the cheaper agent edits source.
 
    ```bash
    workmux add "<phase-id>" -b --base "$INTEGRATION_BRANCH" -P "$PLAN_DIR/prompts/<phase-id>.md"
@@ -246,6 +261,8 @@ not modify the master plan.
 - **description:** <description>
 - **depends_on:** <comma-separated, or "none">
 - **file scope (advisory):** <paths joined>
+- **resolved implement flags:** <resolved flags>
+- **phase plan mode:** <light | rich>
 - **acceptance criteria:**
   <verbatim excerpt from plan>
 
@@ -269,7 +286,11 @@ context but do **not** modify it.
 
 ## What to do
 
-1. Read the Phase brief above, then invoke the `/implement` slash command exactly as `/implement <resolved_implement_flags...> <description>` to plan and implement this phase. Use the Phase brief as design context while working; do not try to compress the whole brief into the slash-command arguments. Do not inline, summarize, emulate, or manually perform the `/implement` workflow yourself. If the slash command cannot be invoked, stop and write `status=failed` in the sentinel. The resolved flags include `--review light` unless this phase explicitly requested a different review mode. The /implement skill will write its own per-phase plan, skip plan review in light mode, run verification review unless review is disabled, implement it, and commit on success.
+1. Read the Phase brief above, then invoke the `/implement` slash command exactly as `/implement <resolved_implement_flags...> <description>` to plan and implement this phase. Use the Phase brief as design context while working; do not try to compress the whole brief into the slash-command arguments. Do not inline, summarize, emulate, or manually perform the `/implement` workflow yourself. If the slash command cannot be invoked, stop and write `status=failed` in the sentinel. The resolved flags include `--review light` unless this phase explicitly requested a different review mode. The /implement skill will write its own per-phase plan or note, run the review phases selected by the flags, run verification review unless review is disabled, implement it, and commit on success.
+
+   If **phase plan mode** is `rich`, the per-phase `/implement` plan must be a consulted, review-grade implementation plan suitable for a cheaper agent to execute. Before editing source, make sure the plan contains small ordered tasks, exact files, test-first steps, and actual code blocks for every non-trivial source or test change. Reviewers must be asked to evaluate whether the plan is concrete enough to implement directly and to supply missing code-level detail where the plan is underspecified.
+
+   If **phase plan mode** is `light`, keep the compact implementation note flow. Do not expand it into a code-bearing plan unless implementation discovers plan drift that requires durable tracking.
 2. **Do not initiate `/merge` yourself.** After your work is committed and
    the sentinel is written (step 3), wait. The coordinator will send you
    `/merge --keep` as an explicit instruction once it has verified your

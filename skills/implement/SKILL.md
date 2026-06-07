@@ -132,7 +132,7 @@ Then write an Approach Decision Record at `history/<YYYY-MM-DD>-adr-<topic>.md`.
 
 ### 2B - Plan or implementation note
 
-For `--review standard` and `--review full`, save `history/<YYYY-MM-DD>-plan-<topic>.md`. With `--consult-first`, link the context bundle and ADR at the top, and reflect the ADR in spec/criteria/tasks.
+For `--review standard` and `--review full`, save `history/<YYYY-MM-DD>-plan-<topic>.md`. With `--consult-first`, link the context bundle and ADR at the top, and reflect the ADR in spec/criteria/tasks. When invoked by `/phased-implement` for a rich phase, the plan is the handoff artifact for a cheaper implementation agent: include concrete ordered tasks and actual code blocks for non-trivial source and test edits before changing source.
 
 For `--review light`, do not write a review-grade plan artifact. Keep planning compact: write only `history/<YYYY-MM-DD>-note-<topic>.md` with the goal, assumptions, acceptance checks, validation command, and task checklist needed to implement safely. If the task comes from a larger workflow whose prompt already names a reviewed parent plan, cite that parent plan in the note instead of duplicating it. Use this note for implementation tracking and Phase 6 context.
 
@@ -174,7 +174,9 @@ Required only when the change touches schema, on-disk format, or a public API co
 - **Verifies acceptance criteria:** #1, #3
 ````
 
-Guidelines for `standard` and `full`: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI - only what the spec demands. Include the actual code to be written under **Code:** only when it clarifies a public interface, tricky algorithm, schema, migration, or non-obvious control flow. Otherwise include exact files, behavioral steps, and tests so reviewers can verify the intended behavior without reviewing speculative implementation code.
+Guidelines for `standard` and `full`: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI - only what the spec demands. Include the actual code to be written under **Code:** when it clarifies a public interface, tricky algorithm, schema, migration, non-obvious control flow, command wiring, fixtures, or tests.
+
+When the prompt says this is a rich `/phased-implement` phase, strengthen the default: every non-trivial source or test edit must have an actual code block, not placeholders. The phase plan should read like the `agent-offload` style: files, steps, concrete code, validation, and commit commands precise enough for a cheaper agent to execute without inventing the design. Omit code only for mechanical edits where the exact replacement is obvious from the steps.
 
 `light` note format:
 
@@ -205,6 +207,8 @@ Capture the new `[thread_id:group_xxx]` for `--rounds` and Phase 6.
 
 ```
 Review this implementation plan against the attached source context.
+
+If the plan says it is a rich `/phased-implement` phase, also verify that it is executable by a cheaper implementation agent: concrete ordered tasks, exact files, test-first steps, and actual code blocks for non-trivial source and test edits. Treat missing code-level detail as a plan finding. For that finding, `recommended_change` must include the missing task, code block, or test detail rather than only saying to add more detail.
 
 Output exactly these sections:
 
