@@ -1,510 +1,427 @@
 ---
 name: implement
-description: Autonomously plan and implement a task with external LLM review. Writes a behavioral spec, runs an evidence-gated plan review (premortem + independent alternative), applies feedback through a decision ledger, implements with a triggered debug loop, and finishes with an evidence-gated post-implementation verification review. No user interaction.
+description: One-unit implementation workflow using presets. It writes a compact note or rich code-bearing plan, optionally consults external LLMs, optionally delegates execution to sideagent, verifies, commits, and summarizes.
 allowed-tools: Bash, Glob, Grep, Read, Edit, Write
 ---
 
-End-to-end autonomous workflow: spec → plan → review → implement → verification review → summary. Reviewers must produce structured findings with concrete evidence; conflicts resolve through a written decision ledger, not silent agent judgment.
-
-**Load the `consult-llm` skill before proceeding** - it defines the invocation contract. Do not call the CLI without loading it first.
+Implement one bounded unit of work. Optimize for cheap execution by doing enough reasoning before edits that the executor can follow concrete instructions instead of inventing design, APIs, tests, or control flow.
 
 ## Argument handling
 
-**Arguments:** `$ARGUMENTS`
+Arguments are `$ARGUMENTS`.
 
-**Reviewer flags:** any `--<selector>` resolvable by `consult-llm models` selects a reviewer (e.g. `--gemini`, `--openai`). Repeat for multiple. Translate model flags and defaults according to the loaded `consult-llm` skill's model-selection rules.
+Parse these flags before starting:
 
-**Mode flags:**
+- `--preset light|standard|design|strict`: workflow preset. Default: `standard`.
+- `--planning note|rich|consult-first`: override compiled planning mode.
+- `--plan-review none|narrow|full`: override compiled plan review mode.
+- `--executor self|sideagent`: override compiled executor.
+- `--verification light|full`: override compiled verification.
+- `--parent-plan <path>`: path to a master plan or phase brief.
+- `--reviewer <selector>`: reviewer selector for consult-llm. Repeatable.
+- `--reviewers <selector,selector>`: comma-separated reviewer selectors.
+- `--validation <command>`: expected validation command.
 
-- `--consult-first` - gather independent reviewer proposals before writing the spec/plan, then synthesize into an Approach Decision Record. Use when scope is ambiguous, direction non-obvious, the change crosses module boundaries, or the repo is unfamiliar. Skip for typos, mechanical renames, exact bug fixes, or dependency bumps.
-- `--rounds N` - repeat the review-refine cycle (Phases 3-4) up to N times. Default `1`, max `3`.
-- `--review full|standard|light|none` - choose review depth. Default `standard`. `full` and `standard` run Phases 3, 4, and 6. `light` skips Phases 3 and 4 but keeps Phase 6. `none` skips Phases 3, 4, and 6.
-- `--no-review` - alias for `--review none`. Compatible with `--consult-first` (proposal generation still runs; plan review and verification review do not).
+Everything else is the implementation request. Preserve it as the task statement.
 
-Strip all flags from arguments to get the task description.
+If no preset is provided, use `standard`. Apply explicit compiled-field overrides after resolving the preset.
 
-## Phase 0: Snapshot state
+Preset compilation:
 
-Load `consult-llm`. Capture working-tree state for the Phase 6 diff base:
-
-```bash
-git rev-parse HEAD                    # store as START_HEAD
-git status --short
-git symbolic-ref --short HEAD
+```yaml
+light:
+  planning: note
+  plan_review: none
+  executor: self
+  verification: light
+standard:
+  planning: rich
+  plan_review: narrow
+  executor: sideagent
+  verification: light
+design:
+  planning: consult-first
+  plan_review: full
+  executor: sideagent
+  verification: light
+strict:
+  planning: rich
+  plan_review: full
+  executor: sideagent
+  verification: full
 ```
 
-Halt conditions (do not auto-recover):
+Do not ask the user during the workflow unless there is no safe way to continue. Use best judgment.
 
-- Working tree shows changes outside expected files - user must clean or stash.
-- No reviewer model resolves (unless `--review none` or `--no-review` is set and `--consult-first` is not).
+## Required artifacts
 
-## Phase 1: Gather context
+Write artifacts under `history/` using today's date prefix.
 
-Use Glob, Grep, Read to research the task surface. Make reasonable assumptions; do **not** ask the user clarifying questions.
+Required:
 
-Before planning or consulting, do enough research to understand how the requested behavior actually works. Before starting, think about what resources would be useful to obtain first: relevant source files, tests, logs, generated files, config, examples, command output, external docs, or authoritative upstream source. Gather the cheapest useful evidence before forming a plan.
+- implementation note or rich implementation plan
+- result sentinel
+- final summary
 
-Do not stop at the first plausible file, definition, setting, or example. Follow references, callers, related tests, and runtime usage until you can explain the current behavior and the likely impact of changing it.
+Optional:
 
-Before planning, ground the requested behavior in the real system, not just this repo. If the task depends on an external product, CLI, API, protocol, file format, or ecosystem convention, verify the relevant behavior using the cheapest authoritative evidence available: local binaries/flags, generated files, official docs, public source, package/library code, or web search. Capture only decision-relevant facts that affect scope, acceptance criteria, compatibility, or implementation constraints; do not create a separate research artifact unless the evidence materially changes the plan.
+- external proposal capture
+- external review capture
+- sideagent prompt capture
+- debug notes
 
-Capture:
+Do not create a feedback ledger. When review changes a plan, update the plan directly. Add a short `Review changes applied` section only when it helps explain material changes.
 
-- Files, modules, public interfaces, dependents, migration concerns.
-- Existing patterns and conventions.
-- External behavior facts that define requested semantics or constraints, with source/path/command evidence.
-- Validation contract: how do tests/types/lints run? Look in `CLAUDE.md`, `CLAUDE.local.md`, `justfile`, `Makefile`, `package.json`, `pyproject.toml`. Record the canonical command (e.g. `just check`).
+## Phase A: snapshot and context
 
-Select source files that let reviewers understand the behavior being changed and verify your assumptions. These are passed as shared `-f <path>` to every reviewer call.
+1. Record the start commit:
 
-## Phase 2: Spec and plan
+   ```bash
+   git rev-parse HEAD
+   ```
 
-### 2A - Independent proposals (only if `--consult-first`)
+2. Check the working tree before editing:
 
-Reviewers must see only the raw task and factual source context. Do **not** write inferred scope, assumptions, acceptance criteria, direction, or tasks before proposals are captured.
+   ```bash
+   git status --short
+   ```
 
-Save a context bundle to `history/<YYYY-MM-DD>-context-<topic>.md`. Include only:
+   Stop if unrelated uncommitted changes would make the work unsafe. Existing user changes may be present. Do not overwrite them.
 
-- Raw task verbatim.
-- Repo facts: branch, START_HEAD, validation command, test framework.
-- Source inventory - files with **factual** reasons for inclusion only ("contains symbol X", "test file for Y"). No "likely needs change", no "probable approach".
+3. Gather context:
 
-Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <context bundle>`, and `-f <relevant source>`. Capture `[thread_id:group_xxx]` from line 1 as `CONSULT_THREAD_ID` - it threads through 2A → 3 → 4 → 6. Synthesize the proposals directly into the ADR.
+   - Use Glob and Grep to find relevant files, callers, tests, fixtures, generated code, and configuration.
+   - Read enough code to understand current behavior and project idioms.
+   - Identify validation commands. Prefer project-local commands from docs, justfiles, package scripts, or existing test patterns.
+   - If a parent plan path is provided, read it and treat it as authoritative for scope.
+   - Keep scope to one implementation unit.
 
-Prompt:
+4. Choose the validation command. If `--validation` was provided, use it unless it is plainly wrong. Otherwise choose the narrowest useful command plus any required project check.
 
-```
-You are independently advising on how to implement the raw task using the attached source context.
+## Phase B: plan
 
-You have NOT been given an agent-written spec, plan, architecture, or intended scope. Infer the most defensible scope and approach from the raw task and source evidence. Make assumptions explicit. Do not ask clarifying questions.
+### Light planning
 
-Output exactly these sections in this order:
-
-## Scope Reading
-- In scope:
-- Out of scope:
-- Assumptions:
-- Ambiguities:
-- Confidence: high | medium | low
-
-## Recommended Approach
-- Strategy (2-4 sentences):
-- Files/modules likely touched:
-- Implementation outline:
-- Compatibility/migration impact:
-- Complexity: low | medium | high
-
-## Acceptance Criteria I Would Verify
-Given/When/Then. Observable behavior only.
-
-## Key Design Choices
-For each: choice / rationale / tradeoff.
-
-## Risks and Failure Modes
-For each: risk / trigger / impact / mitigation_or_test.
-
-## Alternative Worth Considering
-- Strategy (materially different, not a minor variant):
-- When it wins:
-- Why not primary:
-
-## Evidence To Check Before Planning
-```
-
-**Ambiguity / groupthink handling:**
-
-- If two or more reviewers report `Confidence: low` and no proposal produces testable acceptance criteria, stop with an Ambiguity Blocker (record conflicting readings and required user decision in the ADR; do not implement).
-- If proposals converge on one narrow strategy with no credible alternative on a high-risk or cross-module task, run one divergence-challenge consult on the same thread before synthesis.
-
-Then write an Approach Decision Record at `history/<YYYY-MM-DD>-adr-<topic>.md`. Every proposal must be accepted, rejected, or watched-risk - no silent discard. Required sections:
-
-- **Scope Divergence Matrix** - for each scope question: proposal readings / selected interpretation / rationale / risk.
-- **Proposal Summary** - id / model / scope confidence / strategy / strengths / weaknesses / decision.
-- **Selected Approach** - single coherent core architecture (data model, control flow, API boundary, ownership, persistence, concurrency must come from one proposal).
-- **Frankenstein Guard** - if core choices mix across proposals, include an explicit compatibility proof. Otherwise the plan is invalid. Borrowing rejected proposals' tests, naming, validation, or error handling is fine.
-- **Rejected Alternatives** - for each: reason / evidence / watched-risk?
-- **Watched Risks** - risk / why accepted / what would change the call.
-- **Evidence Checks Required Before/During Implementation**.
-
-**Scope-divergence rule:** if divergence affects public API, data loss, security, or migration behavior and no reading is clearly supported, stop with an Ambiguity Blocker.
-
-**Tiebreakers:** literal fit to raw task → safety/data integrity → acceptance criteria coverage → existing patterns → maintainability → testability → simplicity.
-
-### 2B - Plan or implementation note
-
-For `--review standard` and `--review full`, save `history/<YYYY-MM-DD>-plan-<topic>.md`. With `--consult-first`, link the context bundle and ADR at the top, and reflect the ADR in spec/criteria/tasks. When invoked by `/phased-implement` for a rich phase, the plan is the handoff artifact for a cheaper implementation agent: include concrete ordered tasks and actual code blocks for non-trivial source and test edits before changing source.
-
-For `--review light`, do not write a review-grade plan artifact. Keep planning compact: write only `history/<YYYY-MM-DD>-note-<topic>.md` with the goal, assumptions, acceptance checks, validation command, and task checklist needed to implement safely. If the task comes from a larger workflow whose prompt already names a reviewed parent plan, cite that parent plan in the note instead of duplicating it. Use this note for implementation tracking and Phase 6 context.
-
-For `--review none` or `--no-review`, write a compact note only if it is needed for implementation tracking, debugging, or the final summary.
-
-````markdown
-# <Feature> Plan
-
-**Goal:** <one sentence>
-**Approach:** <2-3 sentences>
-**Assumptions:** <list>
-**Validation command:** `<e.g. just check>`
-
-## Behavioral Spec
-
-- **In scope:**
-- **Out of scope:**
-- **Acceptance criteria** (Given/When/Then):
-- **Invariants** (must always hold):
-
-## Test Matrix
-
-| # | Scenario | Expected behavior | Test file/command | Required before implementation? |
-| - | -------- | ----------------- | ----------------- | ------------------------------- |
-
-## Rollback
-
-Required only when the change touches schema, on-disk format, or a public API contract. Rollback steps / data compatibility / rollback window.
-
-## Tasks
-
-### Task 1 - <short description>
-- **Files:** create/modify with exact paths (and line ranges for modify)
-- **Steps:** specific actions
-- **Code:**
-  ```language
-  // actual code, not placeholders
-  ```
-- **Verifies acceptance criteria:** #1, #3
-````
-
-Guidelines for `standard` and `full`: exact paths only, never "somewhere in src/". Each task small (2-5 minutes) and tied to acceptance criteria. DRY, YAGNI - only what the spec demands. Include the actual code to be written under **Code:** when it clarifies a public interface, tricky algorithm, schema, migration, non-obvious control flow, command wiring, fixtures, or tests.
-
-When the prompt says this is a rich `/phased-implement` phase, strengthen the default: every non-trivial source or test edit must have an actual code block, not placeholders. The phase plan should read like the `agent-offload` style: files, steps, concrete code, validation, and commit commands precise enough for a cheaper agent to execute without inventing the design. Omit code only for mechanical edits where the exact replacement is obvious from the steps.
-
-`light` note format:
+For `planning: note`, write a compact implementation note:
 
 ```markdown
 # <Feature> Implementation Note
 
 **Goal:** <one sentence>
-**Reviewed parent plan:** <path, or n/a>
-**Assumptions:** <short list>
-**Acceptance checks:** <observable checks>
-**Validation command:** `<e.g. just check>`
+**Preset:** light
+**Compiled fields:** planning=note, plan_review=none, executor=self, verification=light
+**Parent plan:** <path or n/a>
+**Start commit:** <sha>
+**Validation:** `<command>`
 
 ## Checklist
-- <small implementation step>
+
+- <concrete step>
+
+## Acceptance criteria
+
+- <criterion>
 ```
 
-Do not expand the light note into the full Behavioral Spec, Test Matrix, Rollback, and detailed task template unless the implementation discovers plan drift that needs durable tracking.
+The note must include enough accountability to verify the result: checklist, acceptance criteria, and validation command.
 
-## Phase 3: Plan review
+### Rich planning
 
-Review runs for `--review standard` and `--review full`. Skip Phase 3 and Phase 4 for `--review light`, `--review none`, or `--no-review`. Do not skip plan review under `standard` or `full` because the task seems small, obvious, mechanical, or already validated locally. Reviewers receive the review-grade plan file and relevant source files; they must produce structured output.
+For `planning: rich`, research first and write a rich code-bearing plan:
 
-Invoke `consult-llm` once with one `-m <selector>` per reviewer, `-f <plan path>`, `-f <relevant source>`. With `--consult-first`, continue from `CONSULT_THREAD_ID` via `-t <id>` and additionally attach `-f <context bundle>`, `-f <ADR>`. Use the same selector resolution for `standard` and `full`; `full` differs by intent and should be chosen when the caller wants no review shortcuts or reviewer count reductions from future policy changes.
+````markdown
+# <Feature> Implementation Plan
 
-Compose the prompt by including the `## ADR Check` section if and only if `--consult-first` was used; otherwise include `## Independent Alternative`. Send exactly one of these - do not include the bracket markers in the prompt sent to reviewers.
+**Goal:** <one sentence>
+**Preset:** standard | design | strict
+**Compiled fields:** planning=<mode>, plan_review=<mode>, executor=<mode>, verification=<mode>
+**Parent plan:** <path or n/a>
+**Start commit:** <sha>
+**Approach:** <2-3 sentences>
+**Validation:** `<command>`
 
-Capture the new `[thread_id:group_xxx]` for `--rounds` and Phase 6.
+## Requirements
 
-```
-Review this implementation plan against the attached source context.
+- In scope:
+  - <item>
+- Out of scope:
+  - <item>
+- Acceptance criteria:
+  - <criterion>
 
-If the plan says it is a rich `/phased-implement` phase, also verify that it is executable by a cheaper implementation agent: concrete ordered tasks, exact files, test-first steps, and actual code blocks for non-trivial source and test edits. Treat missing code-level detail as a plan finding. For that finding, `recommended_change` must include the missing task, code block, or test detail rather than only saying to add more detail.
+## Context
 
-Output exactly these sections:
+- `<file>`: <relevant behavior or pattern>
 
-## Spec Check
-List acceptance criteria that are missing, ambiguous, or untestable. Flag invariants the plan does not preserve. If sufficient, write "Spec sufficient."
+## Tasks
 
-## ADR Check (only when `--consult-first`)
-- better_rejected_approach: <proposal id or "none">
-- incompatible_merge_detected: yes | no
-- selection_rationale_sufficient: yes | no
-- required_change:
+### Task 1: <short description>
 
-## Independent Alternative (only when not `--consult-first`)
-In 3-5 sentences, the approach you would choose given the spec and source alone. Note any material divergence from the proposed plan.
+**Files:**
 
-## Premortem
-Assume the plan ships and fails in production within six months. Top 3 failure modes. For each:
-- failure_mode (concrete, with trigger):
-- impact: low | medium | high
-- probability: low | medium | high
-- evidence (in plan or source):
-- current_mitigation (quote plan or "none"):
-- mitigation_sufficient: yes | no
-- required_plan_change_or_test:
+- Create: `path/to/file`
+- Modify: `path/to/file` lines 10-40
 
-Only report failures with a concrete trigger and measurable impact.
+**Steps:**
 
-## Plan Findings
-For each issue:
-- severity: must-fix | should-fix | optional
-- issue_identity: <short kebab-case label>
-- location_or_task: <plan section, task, or file:line>
-- rationale:
-- recommended_change:
-```
+1. Write or update the failing test.
+2. Run `<focused test>` and confirm the expected failure.
+3. Apply the source change.
+4. Run `<focused test>` and confirm it passes.
 
-## Phase 4: Verify findings, update ledger
+**Code:**
 
-Skip this phase when Phase 3 was skipped.
-
-**Verify before adopting.** Treat every reviewer finding (including must-fix) as an unverified claim. Reviewer severity is advisory. Deduplicate findings by issue identity before verification.
-
-Verify all must-fix findings. Verify should-fix findings only when they affect correctness, compatibility, security, data integrity, or test adequacy. Record optional findings as notes unless they expose a concrete defect.
-
-For each verified finding, record the title, claim, suggested fix, and file/line references when available. Then pick the cheapest method that proves or disproves the claim:
-
-- **Plan claims** - re-read the cited plan section.
-- **Source claims** - read the cited file against current code.
-- **Library/API claims** - verify against library source or official docs. Use `gh search code` for usage patterns, `Grep` in `node_modules`/vendored deps, or a throwaway script in `/tmp/`.
-- **Premortem claims** - confirm the trigger actually occurs in the planned design.
-
-For each finding, report a verdict:
-
-- **CONFIRMED**: The finding is accurate and is a real issue.
-- **NOT AN ISSUE**: The finding is technically correct but does not matter in practice.
-- **INCORRECT**: The finding is wrong; show disproof.
-- **UNABLE TO VERIFY**: Cannot test this without external resources/setup.
-
-Then assess the impact of the smallest plausible fix. Question the suggested fix, not just the finding.
-
-- **Likelihood:** REGULAR | OCCASIONAL | RARE | COSMIC RAY | N/A
-- **Readability impact:** IMPROVES | NEUTRAL | WORSENS | N/A
-- **Architecture impact:** NONE | MINOR | MODERATE | MAJOR | N/A
-- **Recommendation:** FIX | FIX (with care) | DISCUSS | SPIN-OFF | DROP
-
-Recommendation rules:
-
-- **DROP**: False/unverifiable, rare with no clarity gain, no practical impact, duplicate defense, or readability worsens without regular impact.
-- **DISCUSS**: The real question is product behavior, policy, or user expectations rather than bug severity.
-- **SPIN-OFF**: The issue is real and important but needs its own design or broader work.
-- **FIX (with care)**: Confirmed and impactful, but the fix has moderate or major structural reach.
-- **FIX**: Confirmed and impactful with none or minor architecture cost.
-
-Classify each finding for the ledger:
-
-- **FIX** or **FIX (with care)** → accept if it is in scope for this implementation.
-- **DISCUSS** or **SPIN-OFF** → record as Watched Risk unless it blocks the current spec.
-- **DROP** → reject with evidence.
-
-With `--consult-first`, findings claiming `better_rejected_approach` or `incompatible_merge_detected: yes` must be verified against the raw proposals and source before adoption.
-
-Append a Feedback Ledger to the plan file:
-
-```markdown
-## Feedback Ledger - Round N
-
-- **finding-id:** <short kebab-case>
-  - **reviewer(s):** <models>
-  - **severity:** must-fix | should-fix | optional
-  - **verdict:** confirmed | not-an-issue | incorrect | unable-to-verify
-  - **likelihood:** regular | occasional | rare | cosmic-ray | n/a
-  - **readability:** improves | neutral | worsens | n/a
-  - **architecture:** none | minor | moderate | major | n/a
-  - **recommendation:** fix | fix-with-care | discuss | spin-off | drop
-  - **decision:** accepted | rejected | watched-risk
-  - **rationale & evidence:** <proof from codebase/docs>
-  - **plan/spec/test change:** <action or "none">
-
-## Watched Risks
-- **<label>:** why accepted; what would change the call.
-
-## Premortem Mitigations Applied
-- <failure mode> → <plan change>
+```language
+actual code, not placeholders
 ```
 
-**Conflict tiebreakers** (in order): security on safety conflicts → spec coverage → existing patterns → simplicity.
+**Tests:**
 
-Any premortem finding rated `mitigation_sufficient: no` AND (`probability: high` OR `impact: high`) **must** be addressed before Phase 5 - change the plan, add a test-matrix row, or record explicitly in Watched Risks.
-
-For every **DISCUSS** and **SPIN-OFF** recommendation, write 100-200 words in the ledger explaining the decision needed or the design work required.
-
-**Multiple rounds (`--rounds N`):** for round 2+, reuse `-m` flags, pass `-t <group_thread_id>` and `-f <updated plan>`, and send: *"Revision N. Were previous concerns addressed? New issues introduced? Same four sections, focus on what changed."* Stop early if reviewers signal no further changes. Append a fresh ledger section per round.
-
-## Phase 5: Implement
-
-Implement tasks **in order**. The validation command must pass at the end.
-
-1. **Spec-first per task** - write or extend the test that proves the linked acceptance criterion **before** implementation. Confirm it fails. Write the code. Confirm it passes.
-2. **Plan drift halts.** If implementation requires touching files outside the plan or note, or deviating from the agreed approach, **stop**. Update the plan or note with the deviation and a one-line reason, then continue.
-3. **Validation** - run the validation command after every logical unit and again at the end. A task is **done** when (a) its tests pass, (b) its acceptance criteria are verified, and (c) validation is green for the touched scope.
-4. **Auto-commit at end** - when all tasks are done and validation is green, create a single commit for all implementation changes. Lowercase imperative subject; body explaining the why per `CLAUDE.md`. Phase 6 fixes go in separate commits (see below).
-
-### Triggered debug protocol
-
-Activate only when **the same check fails twice**, OR a fix would require changing the plan/spec, OR the failure cause is unclear. Do not formalize debugging for ordinary fixes.
-
-For each blocked attempt, append to a scratch section at the bottom of the plan or note file (do not commit):
-
-```
-- failing command:
-- exact error:
-- recent relevant changes:
-- hypothesis:
-- evidence-gathering command (read-only):
-- result:
-- conclusion:
-- fix or plan revision:
+```language
+actual test code, not placeholders
 ```
 
-Cap: **3 hypotheses**. If two have failed, consult reviewers with `--task debug`, the same selectors, and the latest `[thread_id:group_xxx]`:
+**Validates:** <acceptance criterion>
 
+## Validation
+
+1. `<focused command>`
+2. `<final command>`
+````
+
+Rules for rich plans:
+
+- Include exact files and paths.
+- Break work into small ordered tasks.
+- Include test-first steps whenever a test can be written.
+- Include actual code blocks for non-trivial source edits.
+- Include actual code blocks for non-trivial test edits.
+- Omit code only for mechanical replacements or generated content.
+- Prefer existing project patterns over new abstractions.
+- Include constraints from the parent plan or phase brief.
+- Do not include speculative future work.
+- Do not include rollout notes or transient comments in code.
+
+### Consult-first planning
+
+For `planning: consult-first`, load the `consult-llm` skill before any consult-llm CLI call. Then gather factual context and ask external LLMs for plan proposals before synthesizing the rich plan.
+
+Use this prompt shape:
+
+```text
+We need an implementation plan for one bounded code change.
+
+Task:
+<task statement>
+
+Scope constraints:
+<parent plan constraints, paths, acceptance criteria, out-of-scope items>
+
+Relevant facts from source:
+<brief factual summary with file paths>
+
+Please propose a concrete implementation plan. Include exact files, ordered tasks, tests, validation commands, compatibility concerns, and edge cases. Include code snippets where they are important. Do not assume access to files beyond the attached context.
 ```
-We are blocked during Phase 5 implementation.
 
-Task: <ref>
-Failing command and full output:
-<output>
-
-Hypotheses already tried (and why they failed):
-<list>
-
-Relevant recent changes:
-<diff or summary>
-
-Give ranked hypotheses with concrete evidence checks. For each hypothesis, state the observation that would confirm or falsify it. Do not propose code changes until the falsification step is identified.
-```
-
-If the third hypothesis fails, stop. Record blocker, hypotheses, and unanswered evidence question in the Phase 7 summary. Do not loop.
-
-## Phase 6: Verification review
-
-Verification review runs for `--review standard`, `--review full`, and `--review light`. Skip Phase 6 only for `--review none` or `--no-review`. Do not skip verification because the task seems small, because tests passed, or because the implementation appears low-risk. The only non-flag exception is a strictly mechanical diff: renames, version bumps, comment/string typo fixes, or formatting/whitespace only. If any executable behavior, tests, public contract, generated output, or control flow changed, run Phase 6. When using the mechanical exception, state the exact reason in the Phase 7 summary.
-
-Re-list changed files against `START_HEAD`:
+Call consult-llm with file context, a quoted heredoc terminator, and a 10 minute timeout:
 
 ```bash
-git diff --name-only --diff-filter=d <START_HEAD>
-git ls-files --others --exclude-standard
+cat <<'__CONSULT_LLM_END__' | consult-llm --task plan -f <file> -f <file>
+<prompt body>
+__CONSULT_LLM_END__
 ```
 
-If both empty, stop and report nothing implemented. Otherwise pass tracked files as `--diff-files <path>` and untracked as `-f <path>`. Skip binaries and lockfiles.
+If reviewer selectors were supplied, pass one `-m <selector>` per selector. Otherwise use consult-llm defaults. Always set Bash `timeout` to `600000`.
 
-Invoke `consult-llm` with `--task review`, `--diff-base <START_HEAD>`, the file flags above, and `-f <plan-or-note path>`. In `light` mode, pass the compact note plus any reviewed parent plan named by the invoking prompt. By default, do not reuse the Phase 3/4 thread for verification review; the useful evidence is the spec or note, feedback ledger when present, and real diff. Continue the earlier thread only for `--review full` or when verifying whether specific prior concerns were addressed.
+Synthesize one rich implementation plan from the proposals and source evidence. Do not paste proposals blindly. The plan is the contract for execution.
 
-```
-Verify this diff against the Behavioral Spec and Test Matrix in the plan file, or against the compact implementation note when running in `light` mode. You are a verifier, not an attacker - the goal is to confirm the implementation is correct, complete, and consistent with the recorded intent and the surrounding system. Do not manufacture threat models for code that has no relevant surface.
+## Phase C: review the plan
 
-Apply these lenses in order. For each lens, either report findings or state it does not apply and why:
+Skip this phase for `plan_review: none`.
 
-1. **Spec conformance** - every acceptance criterion satisfied; invariants preserved on every path; no silent deviation from the plan.
-2. **Regression & compatibility** - existing callers, public APIs, output formats, ordering, error types, and performance characteristics unchanged unless the plan says so.
-3. **Edge cases & invariants** - boundary inputs, empty/null/missing, large inputs, error paths, resource lifecycle, concurrent access where the code is actually concurrent.
-4. **Test adequacy** - tests assert the important observable behavior, not just that code runs; acceptance criteria from the plan are covered.
-5. **Implementation quality** - unnecessary complexity, dead code, duplicated logic, brittle coupling, naming/patterns inconsistent with the surrounding code, simpler alternatives.
-6. **Security** (apply ONLY when the changed surface touches authn/authz, secrets, untrusted external input, parsing/serialization of untrusted data, file/path access, network boundaries, tenant isolation, crypto, dependency loading, or shared mutable state across trust boundaries) - auth bypass, injection, unsafe parsing, data exposure, race conditions with security impact.
+For `plan_review: narrow` or `full`, load the `consult-llm` skill before calling consult-llm. Attach the plan, relevant source files, tests, and parent plan if any. Use `--task review`. Use supplied reviewer selectors when present. Use the quoted heredoc terminator `__CONSULT_LLM_END__` and Bash timeout `600000`.
 
-A finding may be marked **Verified** only if it includes concrete evidence: a failing input, a failing or insufficient test, a diff/source citation showing a contract mismatch, or a minimal reproduction. Speculation goes under "Unverified Hypotheses" and may not be marked must-fix.
+### Narrow plan review prompt
 
-If no material issues are found across any applicable lens, say so explicitly under "No Issues Found" and still report which lenses you considered. A clean review is a valid result.
+```text
+Review this implementation plan only for handoff quality.
 
-Output exactly:
+Check whether a cheaper execution agent can implement it correctly without inventing missing details. Focus on exact files, task order, code snippets, test-first steps, acceptance coverage, validation commands, phase scope boundaries, and vague instructions.
 
-## Lenses Considered
-- applied: <list>
-- skipped (with reason): <list>
+Do not redesign the architecture unless the plan is plainly inconsistent or impossible.
 
-## Verified Findings
-
-### Finding N
-- severity: must-fix | should-fix
-- category: spec-drift | regression | edge-case | test-gap | compatibility | maintainability | security
-- location: path:line
-- spec_or_invariant_violated: <reference, or "none">
-- evidence: <failing test, input, command output, or source/diff citation that demonstrates the issue>
-- expected_behavior:
-- actual_behavior:
-- rationale:
-- recommended_change:
-
-## Unverified Hypotheses
-- <bullet, or "none">
-
-## Test Coverage Gaps
-- <criterion or invariant the diff does not exercise, or "none">
-
-## Maintainability Notes
-- <non-blocking simplification or structural concern, or "none">
-
-## No Issues Found
-- <only if all sections above are empty: state this explicitly>
+If something is missing, provide concrete replacement text, missing code blocks, missing tests, or task edits. Return only must-fix and should-fix feedback.
 ```
 
-### Verify each finding before fixing
+### Full plan review prompt
 
-The `evidence` is a claim - run or read it. For each finding, record the title, claim, suggested fix, and file/line references when available. Then report:
+```text
+Review this implementation plan for correctness, risk, and handoff quality.
 
-- **Verdict:** CONFIRMED | NOT AN ISSUE | INCORRECT | UNABLE TO VERIFY
-- **Likelihood:** REGULAR | OCCASIONAL | RARE | COSMIC RAY | N/A
-- **Readability impact:** IMPROVES | NEUTRAL | WORSENS | N/A
-- **Architecture impact:** NONE | MINOR | MODERATE | MAJOR | N/A
-- **Recommendation:** FIX | FIX (with care) | DISCUSS | SPIN-OFF | DROP
+Include the narrow handoff checks: exact files, task order, code snippets, test-first steps, acceptance coverage, validation commands, phase scope boundaries, and vague instructions.
 
-Recommendation rules are the same as Phase 4:
+Also check architecture, module boundaries, compatibility, public contracts, regression risk, edge cases, invariants, test adequacy, and security where relevant.
 
-- **DROP**: False/unverifiable, rare with no clarity gain, no practical impact, duplicate defense, or readability worsens without regular impact.
-- **DISCUSS**: The real question is product behavior, policy, or user expectations rather than bug severity.
-- **SPIN-OFF**: The issue is real and important but needs its own design or broader work.
-- **FIX (with care)**: Confirmed and impactful, but the fix has moderate or major structural reach.
-- **FIX**: Confirmed and impactful with none or minor architecture cost.
-
-Apply these outcomes:
-
-- **Evidence reproduces, diff is responsible, recommendation is FIX** → eligible to fix.
-- **Evidence reproduces, diff is responsible, recommendation is FIX (with care)** → hand off unless the fix is localized and has one clear answer.
-- **Evidence reproduces, different code is responsible** → re-target or note misattribution; do not silently fix the wrong place.
-- **Evidence does not reproduce or source citation is wrong** → DROP. List under "rejected after verification" in the summary.
-- **Reproduces only via inputs no caller produces, impossible timing, DISCUSS, or SPIN-OFF** → record as Watched Risk; do not fix.
-
-### Apply fixes
-
-Apply only `Verified Findings` that survived verification, are `must-fix`, have recommendation **FIX**, and are localized (single hunk, single right answer, no interface changes). For each fix:
-
-1. Re-read the file and apply the smallest correct change.
-2. Run the validation command for the touched scope.
-3. **Commit each logical fix separately, one by one.** Use a lowercase imperative subject and a body that names the failure mode prevented.
-
-Do **not** auto-fix `should-fix`, `Unverified Hypotheses`, `Test Coverage Gaps`, or `Maintainability Notes`. List them in the Phase 7 summary.
-
-If any `must-fix` cannot be fixed safely, stop and hand off - do not loop another review pass.
-
-## Phase 7: Summary
-
-Print:
-
+If something is missing or wrong, provide concrete replacement text, missing code blocks, missing tests, or task edits. Return only actionable feedback.
 ```
+
+Apply accepted feedback by editing the plan directly. If feedback is wrong, ignore it. If review materially changes the design, add this optional section:
+
+```markdown
+## Review changes applied
+
+- <short bullet>
+```
+
+Do not create a ledger.
+
+## Phase D: execute
+
+### Self execution
+
+For `executor: self`, implement directly from the note or plan.
+
+Rules:
+
+- Implement tasks in order.
+- Follow test-first steps when present.
+- Stop if the note or plan is wrong or underspecified in a way that changes scope.
+- Make small obvious corrections directly and update the note or plan.
+- Do not overwrite user changes.
+
+### Sideagent execution
+
+For `executor: sideagent`, write an execution prompt file under `history/` and run `sideagent` on it. If the exact sideagent profile is unspecified, use the configured default profile. Do not invent a profile.
+
+Prompt file format:
+
+```markdown
+# Sideagent Execution Prompt
+
+You are executing one bounded implementation plan in this repository.
+
+## Instructions
+
+- Follow the plan exactly unless it is wrong or unsafe.
+- Implement tasks in order.
+- Follow test-first steps when present.
+- Keep scope to this phase only.
+- If a small correction is obvious, update the plan directly and continue.
+- If a correction changes design or scope, stop and report the blocker.
+- Do not ask the user questions.
+- Do not use plan mode.
+- Do not use em dashes.
+- Do not overwrite user changes.
+- Run the validation commands.
+- Commit when validation passes and no blockers remain.
+- Use lowercase imperative commit subjects with a body explaining why.
+- Write the result sentinel described below.
+
+## Task
+
+<task statement>
+
+## Plan
+
+<plan path>
+
+## Parent context
+
+<parent plan path or n/a>
+
+## Result sentinel
+
+Write `history/<date>-<slug>-result.md` with the sentinel format from the plan.
+```
+
+Load the `sideagent` skill before invoking sideagent. Follow that skill's current invocation contract. Use the configured default profile unless the user or local configuration names a specific profile. Do not invent a profile.
+
+If sideagent fails, inspect its output. Fix only local and obvious issues. Otherwise stop and summarize the blocker.
+
+## Phase E: validate and verify
+
+Run the selected validation command. Also run any focused tests from the plan.
+
+For `verification: light`, check:
+
+- validation passed
+- result sentinel exists and reports success
+- diff follows the note or plan
+- acceptance criteria are plausibly covered
+- no obvious scope drift, regression, or unsafe overwrite occurred
+
+For `verification: full`, check all light verification items plus:
+
+- compatibility with existing callers
+- public contract consistency
+- edge cases and error paths
+- test adequacy against acceptance criteria
+- regression risk across touched modules
+- security issues when relevant
+
+Only auto-fix localized must-fix issues with one clear answer. If a fix requires redesign or scope changes, stop and report the blocker.
+
+## Result sentinel
+
+Before committing, write or confirm a result sentinel under `history/`:
+
+```markdown
+# Implementation Result: <feature>
+
+status: success | blocked | failed
+preset: light | standard | design | strict
+planning: note | rich | consult-first
+plan_review: none | narrow | full
+executor: self | sideagent
+verification: light | full
+start_commit: <sha>
+end_commit: <sha or pending>
+commit: <sha or pending>
+plan_or_note: <path>
+validation: <command>
+validation_status: passed | failed | skipped
+
 ## Summary
 
-**Implemented:** <one sentence>
-**Consult-first:** yes | no
-**Context bundle:** history/<date>-context-<topic>.md | n/a
-**ADR:** history/<date>-adr-<topic>.md | n/a
-**Plan or note:** history/<date>-plan-<topic>.md | history/<date>-note-<topic>.md | n/a
-**Diff base:** <START_HEAD short sha>
-**Review phases run:** Phase 3 [yes | skipped] · Phase 6 [yes | skipped]
+- <what changed>
 
-**Plan review (Round N):**
-- accepted: <count> (must-fix: X, should-fix: Y)
-- rejected: <count>
-- watched risks: <count>
+## Acceptance
 
-**Implementation:**
-- tasks completed: X / Y
-- validation: passed | failed (<command>)
-- plan deviations: <list, or "none">
+- <criterion>: met | not met | unknown
 
-**Verification review:**
-- verified findings auto-fixed: <count>
-- verified findings handed off: <list>
-- rejected after verification: <count>
-- unverified hypotheses: <count>
-- test coverage gaps: <list, or "none">
-- maintainability notes: <list, or "none">
+## Blockers
 
-**Blockers (if any):**
-- <description, hypotheses tried, evidence question outstanding>
+- <blocker or none>
+```
 
-**Commits:**
-- <sha> - <subject>
+Update `end_commit` and `commit` after committing.
+
+## Phase F: commit and summarize
+
+Commit when validation passes, verification passes, no blockers remain, and you are confident the change is done.
+
+Commit rules:
+
+- Automatically commit when confident.
+- Use lowercase imperative mood.
+- Keep the subject concise.
+- Do not use conventional commit prefixes.
+- Use a detailed body explaining why, key implementation details, and any behavior differences.
+- Wrap body lines at 80 characters.
+- Do not use `Closes #123`. Use `References` if an issue needs mention.
+
+After committing, print the final summary:
+
+```markdown
+## Result
+
+- Preset: <preset>
+- Plan or note: `<path>`
+- Review: <none | narrow passed | full passed | blocker>
+- Executor: <self | sideagent>
+- Validation: `<command>` <passed | failed | skipped>
+- Verification: <light | full> <passed | failed>
+- Commit: `<sha>`
+- Sentinel: `<path>`
+- Blockers: <none or list>
 ```

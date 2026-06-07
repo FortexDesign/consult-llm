@@ -1,430 +1,413 @@
 ---
 name: phased-implement
-description: Coordinator skill that runs a multi-phase implementation across workmux worktrees. Each phase invokes /implement in its own worktree; the coordinator handles dispatch ordering (sequential, parallel, DAG), merge sequencing, and failure isolation. Composes /implement, /merge, workmux, and consult-llm.
+description: Coordinator workflow for multi-phase implementation across workmux worktrees. Generates or loads a master plan, dispatches phase agents using presets, verifies sentinels, merges serially, and performs integration verification.
 allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
-# Phased Implement
+Coordinate multi-phase implementation across workmux worktrees. The coordinator owns the master plan, phase dispatch, merge order, ancestry checks, final integration validation, and final summary. The coordinator does not edit source files for feature work.
 
-You are a coordinator. You **never** edit source files yourself. You write a master plan, spawn `workmux` worktree agents that each run `/implement` for one phase, and merge their work back via `/merge` in deterministic topological order.
-
-**Load the `consult-llm` skill before any CLI call.** Follow its invocation contract (quoted heredoc, `__CONSULT_LLM_END__` terminator, `timeout: 600000`, thread-id capture). The `coordinator` skill (workmux) is also a useful reference for spawn/wait/capture/send patterns.
+Do not use Claude Code built-in worktree features. Use `workmux` for worktree orchestration.
 
 ## Argument handling
 
-**Arguments:** `$ARGUMENTS`
+Arguments are `$ARGUMENTS`.
 
-**Modes:**
+Parse these flags before starting:
 
-- Free-form task - the coordinator generates the master plan via `consult-llm --task plan`.
-- `--plan <path>` - skip generation; load an existing phased plan from `<path>`.
+- `--plan <path>`: load an existing master plan instead of generating one.
+- `--integration-branch <branch>`: branch that receives phase merges. Default: current branch.
+- `--preset light|standard|design|strict`: default preset for generated phases.
+- `--validation <command>`: final integration validation command.
+- `--reviewer <selector>`: consult-llm selector for optional integration review. Repeatable.
+- `--reviewers <selector,selector>`: comma-separated reviewer selectors.
+- `--integration-review none|auto|full`: final integration review policy. Default: `auto`.
 
-**Coordinator-level flags (apply ONLY to master-plan generation, not forwarded to per-phase `/implement`):**
+Everything else is the requested multi-phase implementation.
 
-- `--consult-first` - gather independent reviewer proposals before drafting the master plan (mirrors `implement` skill's Phase 2A).
-- `--<selector>` (e.g. `--gemini`, `--openai`) - reviewer selection, repeatable. Default: all available selectors from `consult-llm models`.
-
-**Per-phase flags** - declared in the plan's YAML `implement_flags:` list. The coordinator injects `--review light` into each phase unless `implement_flags:` already contains `--review`, `--no-review`, `--consult-first`, or `--rounds`. Plan authors can request richer planning by setting `--review standard` or `--review full` in `implement_flags:`. Non-light phases must use consulted rich implementation plans with concrete tasks and code so a cheaper implementation agent can execute the phase from the plan with minimal design judgment.
-
-**Other flags:**
-
-- `--integration-branch <name>` - branch to merge into. Default: current branch at coordinator startup.
-
-Strip flags from arguments to get the task description.
-
-## Operating principles (read first)
-
-- **Coordinator never writes source.** All implementation happens inside spawned worktree agents via `/implement`.
-- **`workmux done` ≠ success.** A phase is successful only when its agent has written a result sentinel reporting `status=success`. See "Phase result sentinel" below.
-- **Merges are serialized.** At most one `/merge` in flight globally.
-- **Conflicts are acceptable.** Phase boundaries prevent duplicate feature ownership, not every textual conflict. Do not forbid a phase from touching a file just because another phase may also edit it; only split or sequence phases when they would implement the same behavior or require incompatible designs.
-- **Per-phase review is light by default.** The reviewed master plan covers cross-phase design, so routine phases skip `/implement` plan review but keep `/implement` verification review. Use per-phase `implement_flags:` for `--review standard` or `--review full` when a phase needs a rich, externally reviewed implementation plan. Those non-light phase plans must contain concrete code blocks and task steps precise enough for a cheaper agent to implement without re-solving the design.
-- **Drain before dispatch.** `wait --any` returns on the first transition only. Before spawning, re-check `workmux status` and merge every handle in `done` - siblings that finished in the same window must not be left for the next wait.
-- **`/merge` is invoked with `--keep`** so the coordinator can verify success before destroying the worktree. Coordinator runs `workmux remove <handle>` after verification.
-- **Dependents only spawn when all predecessors are `merged`.** No exceptions.
-- **No tight polling.** All waits use `workmux wait` with explicit timeouts.
-- **Failure halts dependents.** No auto-retry. Failed/blocked worktrees are preserved for inspection.
-- **YAML reasoning is native.** The coordinator (you, the LLM) reads `plan.md`'s YAML block semantically. Do **not** write `awk`/`grep` parsers for it. Use Bash only for `git`, `workmux`, `consult-llm`.
-
-## Phase 0 - Snapshot and control plane
-
-```bash
-START_HEAD=$(git rev-parse HEAD)
-# Honor --integration-branch <name> if provided; otherwise use current branch.
-INTEGRATION_BRANCH="${INTEGRATION_BRANCH_FLAG:-$(git symbolic-ref --short HEAD)}"
-# Verify the branch exists.
-git rev-parse --verify "$INTEGRATION_BRANCH" >/dev/null
-git status --short
-```
-
-**Halt conditions:**
-
-- Working tree shows uncommitted changes outside `history/` - user must clean or stash.
-- `INTEGRATION_BRANCH` resolves to a detached HEAD or does not exist - abort.
-- No `--plan` was provided AND `consult-llm models` resolves no selectors - abort.
-
-Pick a topic slug from the task description. Create the control-plane directory:
-
-```bash
-TODAY=$(date +%F)
-PLAN_DIR="history/${TODAY}-phased-${TOPIC}"
-mkdir -p "$PLAN_DIR/prompts" "$PLAN_DIR/captures"
-```
-
-Track phase state in your own working memory. Status values: `pending | working | done-unverified | merging | merged | failed | blocked`.
-
-## Phase 1 - Master plan
-
-### 1.a - Load or generate
-
-If `--plan <path>` was provided: copy the file to `$PLAN_DIR/plan.md`. Skip 1.b.
-
-Otherwise generate via `consult-llm`. With `--consult-first`, mirror `implement` Phase 2A: write a context bundle, consult all selectors with `--task plan`, capture the group `thread_id`, write proposals + ADR, then synthesize. Without `--consult-first`, do a single `consult-llm --task plan` call.
-
-The generated plan must be a markdown file with a fenced YAML block defining the phase DAG (schema below). Write it to `$PLAN_DIR/plan.md`. Plan phases around coherent behavior and ownership. Do not add hard exclusions or TODO-only deferrals merely to avoid possible merge conflicts; LLM agents are expected to resolve ordinary conflicts during the serialized `/merge --keep` step.
-
-The generated plan must also preserve the useful planning rationale outside the YAML. After the YAML, add a `## Phase briefs` section with one subsection per phase. Each phase brief should be specific enough that a worktree agent can make design tradeoffs without rereading the full consult transcript. Include:
-
-- **Intent:** why this phase exists and what design pressure it addresses.
-- **Current problem:** what is wrong in the current code or architecture.
-- **Desired shape:** what the phase should move the code toward.
-- **Preserve:** behavior, contracts, and validation that must not change.
-- **Avoid:** tempting overreach, known bad implementations, and work owned by later phases.
-- **Dependencies:** what earlier phases are expected to provide.
-
-When synthesizing from consult output, copy the phase-specific insights into these briefs instead of collapsing them into a one-line YAML description. The YAML is scheduling metadata; the phase briefs are the implementation context.
-
-### Rich phase implementation plans
-
-For any phase whose `implement_flags:` explicitly select `--review standard` or `--review full`, the coordinator must ensure the phase prompt asks `/implement` to produce a rich phase implementation plan before editing source. The rich phase plan is not just a checklist. It must be suitable for execution by a cheaper implementation agent and include:
-
-- Concrete source and test files with exact paths and relevant line ranges when modifying existing files.
-- Small ordered tasks tied to acceptance criteria.
-- Test-first steps, including the expected failing check before implementation.
-- Actual code blocks for every non-trivial source or test change: public interfaces, structs, enums, functions, parsing logic, control flow, migrations, fixtures, and command wiring. Do not use placeholders.
-- Validation commands and commit commands consistent with the repository instructions.
-- Explicit constraints from the master plan, phase brief, and reviewed feedback ledger.
-
-Light phases keep the compact `/implement --review light` note flow. Do not inflate light phases into rich code-bearing plans unless their YAML flags request `standard` or `full` review.
-
-### 1.b - Plan review
-
-Review must not reuse the planner's thread. Drop `-t`, pass the plan as `-f`, run multiple selectors in parallel: `consult-llm --task review -m <r1> -m <r2> -f $PLAN_DIR/plan.md`.
-
-Use the review structure from `implement` Phase 3 (Spec Check / Premortem / Plan Findings). Apply must-fix changes, append a Feedback Ledger to `plan.md`. Single round only. If plan review adds or changes phase-specific rationale, update the matching `## Phase briefs` subsection as well as the YAML. Do not leave the prompt-critical detail only in the Feedback Ledger.
-
-### 1.c - Plan visibility across worktrees
-
-`history/` is gitignored and shared across worktrees (symlinked into each new worktree by the workmux setup). The plan, prompts, captures, and result sentinels all live there and are visible to spawned worktree agents directly via the same path. **Do not commit any of these files.** Coordinator and phase agents read/write the shared `history/<plan-dir>/` tree directly.
-
-### Plan schema
-
-`plan.md` must contain exactly one fenced YAML block of this shape near the top:
+Preset compilation:
 
 ```yaml
-phases:
-  - id: <kebab-case-id>          # required, unique
-    description: <one sentence>  # required
-    depends_on: []               # required, list of phase ids (may be empty)
-    paths:                       # optional, file-scope hint passed to /implement
-      - "src/foo/**"
-    acceptance:                  # optional, excerpt copied verbatim into prompt
-      - "Given X, when Y, then Z"
-    implement_flags:             # optional, default: ["--review", "light"] injected by coordinator
-      - "--review"
-      - "full"
+light:
+  planning: note
+  plan_review: none
+  executor: self
+  verification: light
+standard:
+  planning: rich
+  plan_review: narrow
+  executor: sideagent
+  verification: light
+design:
+  planning: consult-first
+  plan_review: full
+  executor: sideagent
+  verification: light
+strict:
+  planning: rich
+  plan_review: full
+  executor: sideagent
+  verification: full
 ```
 
-**Hard constraints (the LLM coordinator must verify on read):**
+Advanced master plans may override compiled fields per phase. Apply overrides after resolving the phase preset.
 
-- Every `depends_on` entry exists in the `phases` list.
-- No cycles.
-- Every `id` is unique and matches `[a-z0-9-]+`.
-- `implement_flags` strings are passed verbatim to `/implement` after coordinator-injected `--review light`, unless the phase already declares a review-related flag. Do not inject `--consult-first` automatically; the master plan already absorbed planning cost.
+## Required artifacts
 
-If the YAML block is missing or malformed, halt with a clear error and ask the user to fix `plan.md`. Do **not** silently regenerate.
+Write coordinator artifacts under `history/` using today's date prefix.
 
-### Worked example (3-phase diamond)
+Required:
+
+- master phased plan
+- per-phase plan or note, written by each phase through `/implement`
+- per-phase result sentinel
+- final summary
+
+Optional:
+
+- phase prompt captures
+- external review capture
+- debug notes
+
+Do not require ADRs or feedback ledgers.
+
+## Phase A: snapshot and plan
+
+1. Record the integration branch and start commit:
+
+   ```bash
+   git branch --show-current
+   git rev-parse HEAD
+   git status --short
+   ```
+
+2. Stop if unrelated uncommitted changes make orchestration unsafe.
+
+3. If `--plan <path>` is provided, read the plan and validate it.
+
+4. If no plan is provided, generate a master phased plan under `history/`. Gather source context first with Glob, Grep, and Read. The master plan should be scheduling-focused, not code-heavy. Assign phase presets by risk:
+
+   - `light` for routine mechanical phases from a clear master plan
+   - `standard` for non-trivial phases with known approach
+   - `design` for uncertain, cross-module, or approach-heavy phases
+   - `strict` for public contracts, data formats, security-sensitive work, migrations, or high regression risk
+
+Generated plans should mark non-trivial phases as at least `standard`.
+
+## Master plan schema
+
+The master plan must contain one YAML block and one brief per phase.
+
+````markdown
+# <Feature> Master Plan
+
+**Goal:** <one sentence>
+**Integration branch:** <branch>
+**Start commit:** <sha>
+**Final validation:** `<command>`
 
 ```yaml
 phases:
   - id: api-contract
-    description: Define and lock the new public API surface for X.
+    description: Define the public API contract for X.
     depends_on: []
-    paths: ["src/api/**", "tests/api/**"]
-  - id: server-impl
-    description: Implement the server side of the new API.
-    depends_on: ["api-contract"]
-    paths: ["src/server/**", "tests/server/**"]
-  - id: client-impl
-    description: Implement the client side of the new API.
-    depends_on: ["api-contract"]
-    paths: ["src/client/**", "tests/client/**"]
-  - id: integration-test
-    description: End-to-end tests crossing client and server.
-    depends_on: ["server-impl", "client-impl"]
-    paths: ["tests/integration/**"]
+    paths:
+      - "src/api/**"
+      - "tests/api/**"
+    preset: design
+    acceptance:
+      - "Given a valid request, when the API is called, then it returns the new response shape."
+    planning: consult-first
+    plan_review: full
+    executor: sideagent
+    verification: light
 ```
 
-`api-contract` runs first. Then `server-impl` and `client-impl` run in parallel. After both merge, `integration-test` runs.
+## Phase briefs
 
-## Phase 2 - Dispatch loop
+### api-contract
 
-Hold the DAG and per-phase status in your own working memory. Use `workmux status` whenever you need a live view of running handles.
+**Intent:** why this phase exists
+**Current problem:** what is wrong now
+**Desired shape:** target behavior and boundaries
+**Preserve:** behavior that must not change
+**Avoid:** overreach and later-phase ownership
+**Dependencies:** previous phase outputs
+````
 
-**Loop:**
+Required YAML fields per phase:
 
-1. Compute the **ready set**: phases whose status is `pending` and whose every `depends_on` entry has status `merged`.
-2. If ready set is empty AND nothing is `working`/`merging`: all done → Phase 4 (integration verification).
-3. For each phase in the ready set, resolve the phase's `/implement` flags, write a prompt file (next section), and spawn:
+- `id`: stable slug, unique across phases
+- `description`: one sentence
+- `depends_on`: list of phase ids
+- `paths`: expected owned paths or globs
+- `preset`: `light`, `standard`, `design`, or `strict`
+- `acceptance`: list of acceptance criteria
 
-   - If `implement_flags:` already contains `--review`, `--no-review`, `--consult-first`, or `--rounds`, pass it unchanged.
-   - Otherwise prepend `--review light` before the listed `implement_flags:`.
-   - Classify the phase as `light` when the resolved flags contain `--review light`, `--review none`, or `--no-review`. Classify it as `rich` when the resolved flags contain `--review standard` or `--review full`.
-   - Before writing the prompt, read the phase's YAML entry, the matching `## Phase briefs` subsection, and any Feedback Ledger items that mention the phase. If there is no matching phase brief, include a short coordinator-written brief based on the plan, plan review, and captured consult output. Do not send a prompt that contains only the one-line description and acceptance criteria when richer phase-specific context exists.
-   - For `rich` phases, include the rich-plan requirement in the prompt: `/implement` must consult reviewers for the phase plan and the resulting plan must include concrete tasks plus actual code blocks for non-trivial implementation and tests before the cheaper agent edits source.
+Optional compiled-field overrides:
 
-   ```bash
-   workmux add "<phase-id>" -b --base "$INTEGRATION_BRANCH" -P "$PLAN_DIR/prompts/<phase-id>.md"
-   ```
+- `planning`: `note`, `rich`, or `consult-first`
+- `plan_review`: `none`, `narrow`, or `full`
+- `executor`: `self` or `sideagent`
+- `verification`: `light` or `full`
+- `validation`: phase-specific validation command
 
-   Track the phase as `working` with its handle.
-4. Confirm the spawn started:
+## DAG validation
 
-   ```bash
-   workmux wait <handles...> --status working --timeout 120
-   ```
+Before dispatch, validate the plan:
 
-   On exit-code 1 (timeout), inspect `workmux status` for each handle: a fast-completing phase may have skipped through `working` straight to `done`. Treat `done` as a valid post-spawn state and proceed to step 5; only mark `failed` if a handle is missing entirely or in `waiting`. On exit-code 3, mark the missing handle `failed` and proceed to halt logic.
-5. **Recompute the live handle set** before every wait: only handles you are currently tracking as `working` belong in the wait list. Exclude handles already moved to `done-unverified`, `merging`, `merged`, or `failed` - otherwise `wait --any` returns immediately on a handle's already-finished state and the loop spins.
+- Every phase id is unique.
+- Every dependency names an existing phase.
+- The graph has no cycles.
+- Every phase has a preset.
+- Every preset resolves to compiled fields.
+- Overrides are valid enum values.
+- Every phase has acceptance criteria.
+- Phase briefs exist for every phase.
+- Phase path ownership is specific enough to detect obvious overlap.
+- Overlapping paths are allowed only when dependencies serialize those phases or the brief explains the boundary.
+- A final validation command exists or can be inferred.
 
-   Wait for the next transition with bounded chunks. Use 5-minute (300s) chunks; on each timeout, inspect statuses to detect `waiting`:
+If validation fails, update the master plan directly and rerun validation.
 
-   ```bash
-   workmux wait <all-working-handles> --any --timeout 300
-   rc=$?
-   if [ $rc -eq 0 ]; then
-     # wait --any returns on the FIRST transition; multiple may be done.
-     workmux status <all-working-handles>
-   elif [ $rc -eq 1 ]; then
-     # Timeout - inspect for stuck waiting agents.
-     workmux status <all-working-handles>
-     # If any handle is in `waiting` status, mark it `blocked` and halt dependents.
-     # Otherwise loop back to Step 5.
-   elif [ $rc -eq 3 ]; then
-     # An agent exited unexpectedly. Mark the missing handle `failed`.
-   fi
-   ```
+## Phase B: dispatch loop
 
-   Treat `done` as **unverified success**: set status to `done-unverified` and proceed to phase verification (Phase 3).
-6. **Drain every `done` handle before spawning.** Run Phase 3 verification + merge on each (serial - merges are globally serialized). Only after the working set has no `done` handles do you recompute the ready set and loop to step 1. Skipping the drain spawns dependents against a stale `INTEGRATION_BRANCH`.
+Dispatch phases whose dependencies have succeeded and merged. Parallel phases may run at the same time when their dependencies are satisfied and path ownership is safe.
 
-**Halt logic.** When any phase becomes `failed` or `blocked`:
+For each ready phase:
 
-- Stop spawning new phases.
-- Mark every transitive dependent of the failed phase as `blocked` with `notes: blocked-by:<id>`.
-- Allow currently `working` phases that are NOT transitive dependents to finish; verify and merge them normally.
-- After the loop drains, jump to Phase 4 with a non-zero summary.
+1. Resolve preset and compiled fields.
+2. Write a phase prompt under `history/`.
+3. Create a workmux worktree with a descriptive phase name.
+4. Send the prompt to the worktree agent.
+5. Wait for completion.
+6. Capture status and output.
+7. Read and verify the result sentinel.
+8. Merge successful phases serially into the integration branch.
 
-## Phase result sentinel
+Use workmux at a high level like this:
 
-Each phase prompt instructs the agent to write, as the **final action of `/implement`**, a one-line result file:
-
-```
-<repo-root>/<plan-dir>/captures/<phase-id>.result
-```
-
-Format (single line, no surrounding whitespace):
-
-```
-PHASE_RESULT id=<phase-id> status=success|failed commit=<sha> validation=passed|failed
+```bash
+workmux add <phase-id>
+workmux status
+workmux wait <phase-id>
+workmux capture <phase-id>
 ```
 
-The agent writes `status=success` only if `/implement` Phase 7 reports validation passed and no blockers. Otherwise `status=failed`. The `commit` is the head of the worktree's branch (`git rev-parse HEAD` inside the worktree).
+Use the exact local workmux command syntax when running commands in this repo. Do not switch to Claude Code worktrees.
 
-`history/` is shared across worktrees, so the coordinator reads the sentinel directly from `$PLAN_DIR/captures/<phase-id>.result` after the handle reaches `done`. No commit needed.
+## Phase prompt template
 
-## Per-phase prompt template
-
-Write this to `$PLAN_DIR/prompts/<phase-id>.md` before each spawn. **Self-contained**: assume the agent cannot see your context. Use **relative paths** (each worktree has its own root).
+Write one prompt file per phase:
 
 ```markdown
-# Phased Implement - phase <phase-id>
+# Phase Agent Prompt: <phase-id>
 
-You are an isolated worktree agent. The coordinator spawned you to implement
-**only** this phase of a larger phased plan. Do not work on other phases. Do
-not modify the master plan.
+You are implementing one phase in a workmux worktree.
 
-## Phase
+## Hard rules
 
-- **id:** <phase-id>
-- **description:** <description>
-- **depends_on:** <comma-separated, or "none">
-- **file scope (advisory):** <paths joined>
-- **resolved implement flags:** <resolved flags>
-- **phase plan mode:** <light | rich>
-- **acceptance criteria:**
-  <verbatim excerpt from plan>
+- Work only on this phase.
+- Do not modify the master plan.
+- Do not use plan mode.
+- Do not use em dashes.
+- Do not overwrite user changes.
+- Invoke `/implement` for this phase with the resolved preset and phase context.
+- Preserve the phase boundaries, acceptance criteria, and dependencies below.
+- Commit successful changes in the phase worktree.
+- Write the result sentinel exactly as requested.
+
+## Invoke
+
+Run this implementation workflow:
+
+`/implement --preset <preset> --planning <planning> --plan-review <plan_review> --executor <executor> --verification <verification> --parent-plan <master-plan-path> --validation '<phase-validation-command>' <phase description and acceptance>`
+
+If the local command interface does not accept compiled-field flags, include the compiled fields in the implementation request and keep the preset as the primary interface.
+
+## Phase context
+
+- Phase id: `<phase-id>`
+- Description: <description>
+- Paths: <paths>
+- Preset: `<preset>`
+- Compiled fields: planning=<planning>, plan_review=<plan_review>, executor=<executor>, verification=<verification>
+- Master plan: `<path>`
+- Dependencies: <dependencies>
+
+## Acceptance criteria
+
+- <criterion>
 
 ## Phase brief
 
-Use this implementation context when making design tradeoffs. It preserves the
-rationale from planning and review that does not fit in the YAML scheduling
-metadata.
+<brief from master plan>
 
-<matching `## Phase briefs` subsection from plan.md, plus any Feedback Ledger
-items that directly mention this phase. If the plan lacks a matching brief,
-include a coordinator-written brief with Intent, Current problem, Desired shape,
-Preserve, Avoid, and Dependencies.>
+## Result sentinel
 
-## Master plan
+Write `history/<date>-<phase-id>-result.md`:
 
-The master plan lives at `<plan-dir>/plan.md`. The `history/` directory is
-gitignored and shared across worktrees, so this path is visible from your
-worktree even though it is not part of your branch. Read it for cross-phase
-context but do **not** modify it.
+```markdown
+# Phase Result: <phase-id>
 
-## What to do
+status: success | blocked | failed
+phase_id: <phase-id>
+preset: light | standard | design | strict
+planning: note | rich | consult-first
+plan_review: none | narrow | full
+executor: self | sideagent
+verification: light | full
+worktree: <workmux worktree name>
+base_commit: <sha>
+head_commit: <sha>
+commit: <sha>
+plan_or_note: <path>
+validation: <command>
+validation_status: passed | failed | skipped
 
-1. Read the Phase brief above, then invoke the `/implement` slash command exactly as `/implement <resolved_implement_flags...> <description>` to plan and implement this phase. Use the Phase brief as design context while working; do not try to compress the whole brief into the slash-command arguments. Do not inline, summarize, emulate, or manually perform the `/implement` workflow yourself. If the slash command cannot be invoked, stop and write `status=failed` in the sentinel. The resolved flags include `--review light` unless this phase explicitly requested a different review mode. The /implement skill will write its own per-phase plan or note, run the review phases selected by the flags, run verification review unless review is disabled, implement it, and commit on success.
+## Summary
 
-   If **phase plan mode** is `rich`, the per-phase `/implement` plan must be a consulted, review-grade implementation plan suitable for a cheaper agent to execute. Before editing source, make sure the plan contains small ordered tasks, exact files, test-first steps, and actual code blocks for every non-trivial source or test change. Reviewers must be asked to evaluate whether the plan is concrete enough to implement directly and to supply missing code-level detail where the plan is underspecified.
+- <what changed>
 
-   If **phase plan mode** is `light`, keep the compact implementation note flow. Do not expand it into a code-bearing plan unless implementation discovers plan drift that requires durable tracking.
-2. **Do not initiate `/merge` yourself.** After your work is committed and
-   the sentinel is written (step 3), wait. The coordinator will send you
-   `/merge --keep` as an explicit instruction once it has verified your
-   sentinel. When that command arrives in this session, run it - it is the
-   coordinator-managed merge step, not a user override. Do not ask for
-   confirmation; just run it.
-3. As the very last step, write the phase result sentinel to the shared
-   `history/` tree (do NOT commit it - `history/` is gitignored):
+## Acceptance
 
-   ```bash
-   COMMIT=$(git rev-parse HEAD)
-   STATUS=success     # or "failed" if /implement reported blockers
-   VALIDATION=passed  # or "failed" if validation failed
-   mkdir -p <plan-dir>/captures
-   echo "PHASE_RESULT id=<phase-id> status=$STATUS commit=$COMMIT validation=$VALIDATION" \
-     > <plan-dir>/captures/<phase-id>.result
-   ```
+- <criterion>: met | not met | unknown
 
-## Constraints
+## Files changed
 
-- Stay within the file scope above unless /implement's plan-drift halt is
-  triggered (in which case follow /implement's protocol).
-- Do not run `git push`, do not modify other phases' files.
-- If you cannot complete the phase, write `status=failed` in the sentinel and
-  exit. The coordinator will halt dependent phases.
+- <path>
+
+## Blockers
+
+- <blocker or none>
+```
 ```
 
-## Phase 3 - Per-phase verification and merge
+The phase agent should treat a missing sentinel as failure.
 
-When a handle transitions to `done`:
+## Phase C: result verification
 
-1. **Read the sentinel** directly from the shared `history/` tree:
+For each completed phase, the coordinator verifies:
 
-   ```bash
-   cat "$PLAN_DIR/captures/<phase-id>.result"
-   ```
+- The result sentinel exists.
+- `status` is `success`.
+- `head_commit` and `commit` are present.
+- The phase committed its work.
+- Validation passed or any skipped validation is justified.
+- Files changed are within phase scope or explained by the brief.
+- Acceptance criteria are marked met or have clear explanation.
+- Blockers are `none`.
 
-   If the file is missing or `status=failed` or `validation=failed`: mark phase `failed`, capture `workmux capture <handle> -n 200` to `$PLAN_DIR/captures/<phase-id>.tail`, halt logic.
+If verification fails, do not merge that phase. Capture the workmux output and summarize the blocker.
 
-2. **Capture the tail** for the audit trail regardless:
+## Phase D: merge workflow
 
-   ```bash
-   workmux capture <handle> -n 200 > "$PLAN_DIR/captures/<phase-id>.tail"
-   ```
+Merge successful phases serially into the integration branch. Before each merge, ensure the integration branch is checked out and current.
 
-3. **Serialize merges.** If another phase is currently `merging`, wait for that one to finish first.
+Use the existing merge skill in the phase worktree:
 
-4. **Trigger merge with `--keep`.** Send the `/merge` skill with `--keep` so the worktree survives for verification. Use chunked waits so a `/merge` that drops into a `waiting` prompt on a rebase conflict is detected fast instead of hanging the full timeout:
-
-   ```bash
-   workmux send <handle> "/merge --keep"
-   # Chunked wait: at most 600s total, 60s chunks, abort early on `waiting`.
-   elapsed=0
-   while [ $elapsed -lt 600 ]; do
-     workmux wait <handle> --timeout 60
-     rc=$?
-     if [ $rc -eq 0 ]; then break; fi
-     # On timeout, peek status - `waiting` means /merge stalled on a conflict.
-     if workmux status <handle> | grep -q waiting; then rc=2; break; fi
-     elapsed=$((elapsed + 60))
-   done
-   # rc: 0 done, 1 timeout (overall), 2 stuck waiting, 3 agent exited.
-   ```
-
-   On `rc != 0`: mark `failed`, capture tail to `<plan-dir>/captures/<phase-id>.merge.tail`, halt.
-
-5. **Verify ancestry against the worktree's POST-rebase tip.** `/merge` runs `git rebase <base>` before merging, which **rewrites commit SHAs**. The pre-rebase sha in the result sentinel is therefore not a stable ancestry token. Re-read the worktree's branch tip after `/merge` returns:
-
-   ```bash
-   # The worktree still exists because we used --keep.
-   POST_TIP=$(workmux run <handle> -- git rev-parse HEAD | tail -1)
-   if git merge-base --is-ancestor "$POST_TIP" "$INTEGRATION_BRANCH"; then
-     # Merged successfully. Track the phase as merged with commit=$POST_TIP.
-     workmux remove <handle>
-     # Track phase as merged with commit=$POST_TIP.
-   else
-     # Merge silently failed or was skipped.
-     # Mark phase failed; halt dependents. Do NOT remove the worktree.
-   fi
-   ```
-
-   The sentinel's pre-rebase sha is **never** the ancestry-check input.
-
-6. **Drift check.** If `INTEGRATION_BRANCH` advanced by commits not authored by phased-implement (external commits during the run), note it and continue. If a parallel sibling has produced conflicts, the next sibling's `/merge --keep` will surface them for resolution. Treat unresolved or abandoned conflicts as a merge failure, not the mere existence of conflicts.
-
-## Phase 4 - Integration verification
-
-After the dispatch loop drains successfully, run the canonical validation command on the integration branch. Then run one `consult-llm --task review` against the reviewed master plan and the combined diff from `START_HEAD` to `INTEGRATION_BRANCH`. Focus the review on cross-phase contract mismatch, missed acceptance criteria, integration regressions, compatibility changes, and test gaps across phase boundaries. Do not repeat isolated per-phase maintainability notes unless they create integration risk.
-
-Skip integration verification only if the run halted with failed or blocked phases; report the skip reason in the summary.
-
-## Phase 5 - Summary
-
-After integration verification, or after the dispatch loop drains with a halt, print:
-
-```
-## phased-implement summary
-
-**Plan:** <plan-dir>/plan.md
-**Integration branch:** <name>
-**Start HEAD:** <short-sha>
-**End HEAD:** <short-sha>
-
-| id | status | commit | notes |
-| -- | ------ | ------ | ----- |
-| <each phase> |
-
-**Merged:** <count> / <total>
-**Failed:** <list of ids>
-**Blocked:** <list of ids with blocked-by>
-**Integration verification:** passed | failed | skipped (<reason>)
-
-**Artifacts:**
-- prompts: <plan-dir>/prompts/
-- captures: <plan-dir>/captures/
-
-**Next steps (if any failed/blocked):**
-- Inspect captures/<id>.tail and captures/<id>.result.
-- Worktrees for failed/blocked phases are preserved (use `workmux list`).
-- To retry: no automatic resume. Manually `workmux remove` leftover failed worktrees, prune already-merged phases from `plan.md`, and re-invoke `/phased-implement --plan <plan-dir>/plan.md` on the trimmed plan.
+```text
+/merge --keep
 ```
 
-## Watched Risks (documented limitations)
+At a high level:
 
-- **No `--continue` resume.** If the coordinator session dies mid-run, worktrees keep running. The user can inspect `workmux status` and re-invoke manually on a trimmed plan; v1 does not auto-reconcile partial state.
-- **Plan drift cross-phase.** If a later phase discovers an earlier merged phase chose the wrong abstraction, the coordinator does not auto-replan. Halt and let the user re-plan.
-- **paths-scope leakage.** `paths:` is advisory. The coordinator does not run `git diff --name-only` against allowed paths in v1; relies on `/implement`'s plan-drift halt and red-team.
-- **Base-branch drift.** External commits on the integration branch during a run are tolerated but warned. Heavy drift can cause cascading rebase conflicts.
-- **History/ visibility assumption.** This skill assumes `history/` is gitignored and shared (symlinked) across worktrees by the workmux setup. If that is not true in a given repo, plan/sentinel/captures will not be visible to spawned agents. Verify with `workmux` configuration before running.
+1. Capture the phase tip from the sentinel before merge: `head_commit`.
+2. Send `/merge --keep` to the phase worktree agent with workmux.
+3. Wait for merge completion.
+4. Check the integration branch history.
+5. Verify the phase tip is an ancestor of the integration branch:
 
-## Invocation contract recap
+   ```bash
+   git merge-base --is-ancestor <phase-head-commit> <integration-branch>
+   ```
 
-- Coordinator-only skill. `disable-model-invocation: true` in frontmatter - invoke explicitly via `/phased-implement`.
-- Reads YAML semantically; never parses with shell tools.
-- Spawns via `workmux add`, communicates via `workmux send`, awaits via `workmux wait`, cleans via `workmux remove`.
-- Generates plans via `consult-llm` (load that skill first).
-- Trusts `/implement` for actual implementation and `/merge --keep` for branch integration; verifies both via the result sentinel (success/fail signal), a post-rebase ancestry check using the worktree's branch tip read **after** `/merge` returns, and one final integration review of the combined diff when all phases merge successfully.
+6. If ancestry verification passes, remove the workmux worktree:
+
+   ```bash
+   workmux remove <phase-id>
+   ```
+
+7. If ancestry verification fails, stop merging and report the phase as blocked.
+
+Do not use `workmux remove` before the merge and ancestry verification succeed.
+
+## Phase E: continue the DAG
+
+After each successful merge:
+
+- Mark the phase as merged.
+- Recompute ready phases.
+- Dispatch newly unblocked phases.
+- Continue until every phase is merged or no progress can be made.
+
+If a phase fails, keep unrelated ready phases running only when their dependencies and paths are unaffected. Otherwise stop and summarize.
+
+## Phase F: final integration validation
+
+When all phases merge:
+
+1. Run the final integration validation command from the master plan or `--validation`.
+2. Inspect the integration diff and phase summaries.
+3. Confirm that acceptance criteria across phases are covered.
+4. Confirm there is no obvious cross-phase drift or conflict.
+
+Final integration review policy:
+
+- `none`: skip external integration review.
+- `auto`: run full external integration review when any phase used `design` or `strict`, or when multiple phases changed shared contracts. Otherwise skip.
+- `full`: always run full external integration review.
+
+For final integration review, load the `consult-llm` skill before calling consult-llm. Attach the master plan, phase sentinels, and relevant diffs or files. Use `--task review`, supplied reviewer selectors if present, quoted heredoc terminator `__CONSULT_LLM_END__`, and Bash timeout `600000`.
+
+Prompt shape:
+
+```text
+Review the integrated result of this multi-phase implementation.
+
+Check whether the merged phases satisfy the master plan acceptance criteria. Focus on cross-phase compatibility, public contracts, regression risk, edge cases, validation adequacy, and security where relevant.
+
+Return only actionable must-fix or should-fix issues. If the result is acceptable, say so directly.
+```
+
+Only auto-fix localized must-fix issues with one clear answer. If review finds design or scope issues, stop and summarize them.
+
+## Final summary
+
+Write a final summary under `history/` and print it:
+
+```markdown
+# Phased Implementation Summary: <feature>
+
+status: success | blocked | failed
+integration_branch: <branch>
+start_commit: <sha>
+end_commit: <sha>
+master_plan: <path>
+final_validation: <command>
+final_validation_status: passed | failed | skipped
+integration_review: none | skipped | passed | failed
+
+## Phases
+
+| Phase | Preset | Status | Commit | Sentinel |
+| --- | --- | --- | --- | --- |
+| <id> | <preset> | merged | <sha> | <path> |
+
+## Acceptance
+
+- <criterion>: met | not met | unknown
+
+## Merges
+
+- <phase>: merged and ancestry verified against `<phase-head-commit>`
+
+## Blockers
+
+- <blocker or none>
+
+## Next steps
+
+- <only if needed>
+```
+
+Report the final validation result, integration review result, merged phase commits, and blockers. If all phases merged and validation passed, state success plainly.
