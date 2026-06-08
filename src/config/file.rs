@@ -201,8 +201,9 @@ fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<
                 spec.id
             ));
         }
-        let backend = block.backend.as_deref().unwrap_or("api");
-        if !spec.profile_backed_backends.contains(&backend) {
+        if let Some(backend) = block.backend.as_deref()
+            && !spec.profile_backed_backends.contains(&backend)
+        {
             let allowed = spec.profile_backed_backends.join(" | ");
             let allowed_msg = if allowed.is_empty() {
                 "none".to_string()
@@ -836,8 +837,16 @@ cli_profiles:
     }
 
     #[test]
-    fn test_parse_rejects_unsupported_cli_profile_on_non_profile_backend() {
-        let err = ConfigFile::parse("anthropic:\n  cli_profile: claude\n").unwrap_err();
+    fn test_parse_accepts_cli_profile_without_backend_for_layered_config() {
+        let cfg = ConfigFile::parse("anthropic:\n  cli_profile: claude\n").unwrap();
+        let m = cfg.to_env_map(ApiKeyPolicy::Allow).unwrap();
+        assert_eq!(m["CONSULT_LLM_ANTHROPIC_CLI_PROFILE"], "claude");
+    }
+
+    #[test]
+    fn test_parse_rejects_unsupported_cli_profile_on_explicit_non_profile_backend() {
+        let err =
+            ConfigFile::parse("anthropic:\n  backend: api\n  cli_profile: claude\n").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("cli_profile"));
         assert!(msg.contains("unsupported"));

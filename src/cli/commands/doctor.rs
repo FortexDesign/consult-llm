@@ -195,6 +195,12 @@ fn profile_backend_dependency(
             format!("profile '{profile_name}' not found; available profiles: {allowed}"),
         ));
     };
+    if !profile.headless {
+        return Some((
+            false,
+            format!("profile '{profile_name}' has headless: false"),
+        ));
+    }
     let (ok, dep) = profile_command_dependency(&profile.command);
     Some((ok, format!("profile '{profile_name}' command {dep}")))
 }
@@ -739,5 +745,25 @@ mod tests {
         assert!(!ok);
         assert!(detail.contains("profile 'claude' command"));
         assert!(detail.contains("not found"));
+    }
+
+    #[test]
+    fn profile_backend_dependency_reports_non_headless_profile() {
+        let mut profile = cli_profile(std::env::current_exe().unwrap().display().to_string());
+        profile.headless = false;
+        let mut profiles = BTreeMap::new();
+        profiles.insert("claude".to_string(), profile);
+
+        let (ok, detail) = profile_backend_dependency(
+            Provider::Anthropic.spec(),
+            "claude-cli",
+            Some("claude"),
+            &profiles,
+        )
+        .unwrap();
+
+        assert!(!ok);
+        assert!(detail.contains("profile 'claude'"));
+        assert!(detail.contains("headless: false"));
     }
 }

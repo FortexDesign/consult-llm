@@ -57,10 +57,11 @@ impl ProviderRuntimeConfig {
     pub fn has_executable_backend(&self) -> bool {
         match &self.backend {
             Backend::Api => self.api_key.is_some(),
-            Backend::ProfileCli(name) => self
-                .selected_cli_profile
-                .as_ref()
-                .is_some_and(|selected| selected.backend == *name && name == "claude-cli"),
+            Backend::ProfileCli(name) => {
+                self.selected_cli_profile.as_ref().is_some_and(|selected| {
+                    selected.backend == *name && name == "claude-cli" && selected.profile.headless
+                })
+            }
             _ => true,
         }
     }
