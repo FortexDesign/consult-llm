@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.15 (2026-06-08)
+
+- Added reusable CLI backend profiles, so any model family can route through a configured headless CLI process while keeping the normal model selector
+- Added Claude CLI profile support for Anthropic and profile-backed models, including streamed thinking, tool, session, and usage events in monitor output
+- `consult-llm` now uses configured `default_models` when `-m` is omitted, making multi-model defaults work automatically in CLI and skill workflows
+- `consult-llm doctor` now validates profile-backed backends and reports missing, non-headless, or unavailable profile commands before a run starts
+
 ## v3.0.14 (2026-06-06)
 
 - Cursor-specific model names (`auto`, `composer`, `kimi`) are now accepted in the enabled model catalog when using the `cursor-cli` backend, letting you select them directly as model selectors
