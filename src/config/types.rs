@@ -38,10 +38,6 @@ impl Backend {
             Backend::ProfileCli(raw) => raw.as_str(),
         }
     }
-
-    pub fn has_executor(&self) -> bool {
-        !matches!(self, Backend::ProfileCli(_))
-    }
 }
 
 /// Per-provider runtime configuration parsed from environment variables.
@@ -50,8 +46,24 @@ pub struct ProviderRuntimeConfig {
     pub api_key: Option<String>,
     pub backend: Backend,
     pub opencode_provider: String,
-    #[allow(dead_code)]
     pub selected_cli_profile: Option<SelectedCliProfile>,
+}
+
+impl ProviderRuntimeConfig {
+    /// Returns true if this provider has an available executor for its backend.
+    /// For API backends this means an API key is set. For profile-backed backends
+    /// it means a matching CLI profile is selected. Built-in CLI backends always
+    /// have an executor.
+    pub fn has_executable_backend(&self) -> bool {
+        match &self.backend {
+            Backend::Api => self.api_key.is_some(),
+            Backend::ProfileCli(name) => self
+                .selected_cli_profile
+                .as_ref()
+                .is_some_and(|selected| selected.backend == *name && name == "claude-cli"),
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]

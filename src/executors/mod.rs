@@ -5,6 +5,7 @@ pub mod api_chat;
 pub mod api_common;
 pub mod api_transport;
 pub mod child_guard;
+pub mod claude_cli;
 pub mod cli_runner;
 pub mod codex_cli;
 pub mod cursor_cli;
@@ -20,10 +21,29 @@ pub mod types;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use cli_runner::run_cli_streaming;
+use cli_runner::run_cli_streaming_with_env;
 use consult_llm_core::monitoring::{ProgressStage, RunSpool};
 use stream::{StreamEvents, StreamReducer};
 use types::ExecuteResult;
+
+/// Parser trait for CLI output. Implementations produce stream events from
+/// each stdout line and can emit additional events after the process exits
+/// via `finish` (e.g. to parse a complete JSON buffer).
+pub trait CliOutputParser {
+    fn on_line(&mut self, line: &str) -> anyhow::Result<StreamEvents>;
+    fn finish(&mut self) -> anyhow::Result<StreamEvents> {
+        Ok(smallvec::smallvec![])
+    }
+}
+
+impl<F> CliOutputParser for F
+where
+    F: FnMut(&str) -> StreamEvents,
+{
+    fn on_line(&mut self, line: &str) -> anyhow::Result<StreamEvents> {
+        Ok(self(line))
+    }
+}
 
 use crate::external_dirs::get_external_directories;
 use crate::git_worktree::get_main_worktree_path;
@@ -64,7 +84,7 @@ pub fn build_extra_dir_args(file_paths: Option<&[PathBuf]>, flag: &str) -> Vec<S
 }
 
 /// Run a CLI tool with streaming, parse output, and return the result.
-/// Shared by all CLI executors to avoid duplicating the spawn → stream → check flow.
+/// Shared by all CLI executors to avoid duplicating the spawn -> stream -> check flow.
 /// The prompt is passed via stdin to keep it out of the process argument list.
 pub fn run_cli_executor(
     command: &str,
@@ -75,6 +95,33 @@ pub fn run_cli_executor(
     spool: Arc<Mutex<RunSpool>>,
     parse_line: fn(&str) -> StreamEvents,
 ) -> anyhow::Result<ExecuteResult> {
+    let mut parser = parse_line;
+    run_cli_executor_with_env(
+        command,
+        args,
+        None,
+        Some(stdin_prompt),
+        prompt,
+        system_prompt,
+        spool,
+        &mut parser,
+    )
+}
+
+/// Run a CLI tool with streaming, profile-backed env, and a parser trait.
+/// Processes `parser.finish()` after the child exits. The prompt is delivered
+/// via stdin when `stdin_prompt` is `Some`, or as part of `args` when `None`.
+#[allow(clippy::too_many_arguments)]
+pub fn run_cli_executor_with_env(
+    command: &str,
+    args: &[String],
+    extra_env: Option<&std::collections::BTreeMap<String, String>>,
+    stdin_prompt: Option<&str>,
+    prompt: &str,
+    system_prompt: &str,
+    spool: Arc<Mutex<RunSpool>>,
+    parser: &mut (impl CliOutputParser + Send),
+) -> anyhow::Result<ExecuteResult> {
     let mut reducer = StreamReducer::new(Arc::clone(&spool), Some(prompt), Some(system_prompt));
     let spawn_spool = Arc::clone(&spool);
     let on_spawn: Option<Box<dyn FnOnce(u32) + Send>> = Some(Box::new(move |pid| {
@@ -82,9 +129,24 @@ pub fn run_cli_executor(
             s.set_stage(ProgressStage::CliSpawned { pid });
         }
     }));
-    let result = run_cli_streaming(command, args, Some(stdin_prompt), on_spawn, |line| {
-        reducer.process(parse_line(line));
-    })?;
+    let mut parser_error: Option<anyhow::Error> = None;
+    let result =
+        run_cli_streaming_with_env(command, args, extra_env, stdin_prompt, on_spawn, |line| {
+            if parser_error.is_some() {
+                return;
+            }
+            match parser.on_line(line) {
+                Ok(events) => reducer.process(events),
+                Err(err) => parser_error = Some(err),
+            }
+        })?;
+    if let Some(err) = parser_error {
+        return Err(err);
+    }
+
+    // Allow the parser to emit final events (e.g. buffered JSON deserialization).
+    let events = parser.finish()?;
+    reducer.process(events);
 
     if result.code == Some(0) {
         let response = reducer.response.trim_end().to_string();

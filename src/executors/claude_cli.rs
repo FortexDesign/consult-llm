@@ -1,0 +1,653 @@
+use smallvec::smallvec;
+
+use super::stream::{ParsedStreamEvent, StreamEvents};
+use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
+use super::{CliOutputParser, run_cli_executor_with_env};
+
+use crate::config::types::{CliProfileInterface, CliPromptMode, SelectedCliProfile};
+
+pub struct ClaudeCliExecutor {
+    capabilities: LlmExecutorCapabilities,
+    profile: SelectedCliProfile,
+}
+
+impl ClaudeCliExecutor {
+    pub fn new(profile: SelectedCliProfile) -> Self {
+        Self {
+            capabilities: LlmExecutorCapabilities {
+                is_cli: true,
+                supports_threads: false,
+                supports_file_refs: false,
+            },
+            profile,
+        }
+    }
+}
+
+impl LlmExecutor for ClaudeCliExecutor {
+    fn capabilities(&self) -> &LlmExecutorCapabilities {
+        &self.capabilities
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "claude_cli"
+    }
+
+    fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
+        let ExecutionRequest {
+            prompt,
+            model: _,
+            system_prompt,
+            file_paths: _,
+            thread_id,
+            spool,
+        } = req;
+
+        if !self.profile.profile.headless {
+            anyhow::bail!(
+                "Claude CLI executor requires headless: true in profile '{}'",
+                self.profile.name
+            );
+        }
+
+        if thread_id.is_some() {
+            anyhow::bail!("Claude CLI executor does not support thread resume");
+        }
+
+        let full_prompt = format!("{system_prompt}\n\n{prompt}");
+
+        let profile = &self.profile.profile;
+        let mut args = profile.args.clone();
+
+        let stdin_prompt = match profile.prompt {
+            CliPromptMode::Stdin => Some(full_prompt),
+            CliPromptMode::Argument => {
+                args.push(full_prompt);
+                None
+            }
+        };
+
+        let mut parser = ClaudeCliParser::new(profile.interface.clone());
+
+        run_cli_executor_with_env(
+            &profile.command,
+            &args,
+            Some(&profile.env),
+            stdin_prompt.as_deref(),
+            &prompt,
+            &system_prompt,
+            spool,
+            &mut parser,
+        )
+    }
+}
+
+// --- Parser ---
+
+pub struct ClaudeCliParser {
+    interface: CliProfileInterface,
+    json_lines: Vec<String>,
+    has_assistant_text: bool,
+}
+
+impl ClaudeCliParser {
+    pub fn new(interface: CliProfileInterface) -> Self {
+        Self {
+            interface,
+            json_lines: Vec::new(),
+            has_assistant_text: false,
+        }
+    }
+
+    fn parse_stream_json_line(&mut self, line: &str) -> StreamEvents {
+        if line.is_empty() {
+            return smallvec![];
+        }
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            return smallvec![];
+        };
+
+        match event.get("type").and_then(|t| t.as_str()) {
+            Some("assistant") => {
+                self.has_assistant_text = true;
+                let text = self.extract_assistant_text(&event);
+                let mut events = smallvec![ParsedStreamEvent::AssistantText { text }];
+                if let Some(u) = event.get("usage")
+                    && let Some(usage) = extract_usage(u)
+                {
+                    events.push(usage);
+                }
+                events
+            }
+            Some("result") => {
+                let mut events: StreamEvents = smallvec![];
+                if !self.has_assistant_text
+                    && let Some(text) = event.get("result").and_then(|r| r.as_str())
+                {
+                    events.push(ParsedStreamEvent::AssistantText {
+                        text: text.to_string(),
+                    });
+                }
+                if let Some(u) = event.get("usage")
+                    && let Some(usage) = extract_usage(u)
+                {
+                    events.push(usage);
+                }
+                events
+            }
+            Some("error") => {
+                let msg = event
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| {
+                        event
+                            .get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|m| m.as_str())
+                    })
+                    .unwrap_or("unknown error");
+                smallvec![ParsedStreamEvent::AssistantText {
+                    text: format!("Error: {msg}"),
+                }]
+            }
+            _ => smallvec![],
+        }
+    }
+
+    fn extract_assistant_text(&self, event: &serde_json::Value) -> String {
+        let Some(content) = event
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+        else {
+            return String::new();
+        };
+        content
+            .iter()
+            .filter_map(|block| {
+                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    block.get("text").and_then(|t| t.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    fn parse_json_document(&mut self, text: &str) -> StreamEvents {
+        if text.trim().is_empty() {
+            return smallvec![];
+        }
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(text) else {
+            return smallvec![];
+        };
+        self.parse_stream_json_from_value(&event)
+    }
+
+    fn parse_stream_json_from_value(&mut self, event: &serde_json::Value) -> StreamEvents {
+        match event.get("type").and_then(|t| t.as_str()) {
+            Some("assistant") => {
+                self.has_assistant_text = true;
+                let text = self.extract_assistant_text(event);
+                let mut events = smallvec![ParsedStreamEvent::AssistantText { text }];
+                if let Some(u) = event.get("usage")
+                    && let Some(usage) = extract_usage(u)
+                {
+                    events.push(usage);
+                }
+                events
+            }
+            Some("result") => {
+                let mut events: StreamEvents = smallvec![];
+                if !self.has_assistant_text
+                    && let Some(text) = event.get("result").and_then(|r| r.as_str())
+                {
+                    events.push(ParsedStreamEvent::AssistantText {
+                        text: text.to_string(),
+                    });
+                }
+                if let Some(u) = event.get("usage")
+                    && let Some(usage) = extract_usage(u)
+                {
+                    events.push(usage);
+                }
+                events
+            }
+            Some("error") => {
+                let msg = event
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .or_else(|| {
+                        event
+                            .get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|m| m.as_str())
+                    })
+                    .unwrap_or("unknown error");
+                smallvec![ParsedStreamEvent::AssistantText {
+                    text: format!("Error: {msg}"),
+                }]
+            }
+            _ => smallvec![],
+        }
+    }
+}
+
+fn extract_usage(u: &serde_json::Value) -> Option<ParsedStreamEvent> {
+    let input_tokens = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let cache_creation = u
+        .get("cache_creation_input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cache_read = u
+        .get("cache_read_input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let completion_tokens = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let prompt_tokens = input_tokens + cache_creation + cache_read;
+    if prompt_tokens > 0 || completion_tokens > 0 {
+        Some(ParsedStreamEvent::Usage {
+            prompt_tokens,
+            completion_tokens,
+        })
+    } else {
+        None
+    }
+}
+
+impl CliOutputParser for ClaudeCliParser {
+    fn on_line(&mut self, line: &str) -> anyhow::Result<StreamEvents> {
+        match self.interface {
+            CliProfileInterface::Text => Ok(smallvec![ParsedStreamEvent::AssistantText {
+                text: format!("{line}\n"),
+            }]),
+            CliProfileInterface::Json => {
+                self.json_lines.push(line.to_string());
+                Ok(smallvec![])
+            }
+            CliProfileInterface::StreamJson => Ok(self.parse_stream_json_line(line)),
+        }
+    }
+
+    fn finish(&mut self) -> anyhow::Result<StreamEvents> {
+        match self.interface {
+            CliProfileInterface::Json => {
+                let combined = self.json_lines.join("\n");
+                Ok(self.parse_json_document(&combined))
+            }
+            _ => Ok(smallvec![]),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::executors::stream::StreamReducer;
+    use consult_llm_core::monitoring::RunSpool;
+    use std::sync::{Arc, Mutex};
+
+    fn make_parser(interface: CliProfileInterface) -> ClaudeCliParser {
+        ClaudeCliParser::new(interface)
+    }
+
+    fn reducer() -> StreamReducer {
+        StreamReducer::new(Arc::new(Mutex::new(RunSpool::disabled())), None, None)
+    }
+
+    // --- Text interface ---
+
+    #[test]
+    fn test_text_interface_each_line_is_assistant_text() {
+        let mut p = make_parser(CliProfileInterface::Text);
+        let ev = p.on_line("hello").unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "hello\n"));
+    }
+
+    #[test]
+    fn test_text_interface_blank_lines_preserved() {
+        let mut p = make_parser(CliProfileInterface::Text);
+        let ev = p.on_line("").unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "\n"));
+    }
+
+    #[test]
+    fn test_text_interface_multiple_lines() {
+        let mut p = make_parser(CliProfileInterface::Text);
+        let ev1 = p.on_line("line1").unwrap();
+        let ev2 = p.on_line("line2").unwrap();
+        assert!(matches!(&ev1[0], ParsedStreamEvent::AssistantText { text } if text == "line1\n"));
+        assert!(matches!(&ev2[0], ParsedStreamEvent::AssistantText { text } if text == "line2\n"));
+    }
+
+    // --- StreamJson interface ---
+
+    #[test]
+    fn test_stream_json_assistant_text() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "Hello"));
+    }
+
+    #[test]
+    fn test_stream_json_assistant_skips_tool_use_content() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Answer: "},{"type":"tool_use","name":"bash","input":{"cmd":"ls"}}]}}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "Answer: "));
+    }
+
+    #[test]
+    fn test_stream_json_assistant_with_empty_content() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[]}}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text.is_empty()));
+    }
+
+    #[test]
+    fn test_stream_json_result_fallback() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"result","result":"Final answer","usage":{"input_tokens":100,"output_tokens":50}}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 2);
+        assert!(
+            matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "Final answer")
+        );
+        assert!(matches!(
+            &ev[1],
+            ParsedStreamEvent::Usage {
+                prompt_tokens: 100,
+                completion_tokens: 50
+            }
+        ));
+    }
+
+    #[test]
+    fn test_stream_json_result_not_used_when_assistant_text_seen() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let assistant = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}"#;
+        let result = r#"{"type":"result","result":"Ignored","usage":{"input_tokens":100,"output_tokens":50}}"#;
+        let _ = p.on_line(assistant).unwrap();
+        let ev = p.on_line(result).unwrap();
+        // Usage emitted but no assistant text from result fallback
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::Usage { .. }));
+    }
+
+    #[test]
+    fn test_stream_json_error_event() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"error","error":{"message":"Rate limit exceeded"}}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(
+            matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text.contains("Rate limit exceeded"))
+        );
+    }
+
+    #[test]
+    fn test_stream_json_error_string() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"error","error":"Internal error"}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(
+            matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "Error: Internal error")
+        );
+    }
+
+    #[test]
+    fn test_stream_json_usage_with_cache_tokens() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"result","result":"Done","usage":{"input_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"output_tokens":30}}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 2);
+        // prompt = 50 + 10 + 5 = 65
+        assert!(matches!(
+            &ev[1],
+            ParsedStreamEvent::Usage {
+                prompt_tokens: 65,
+                completion_tokens: 30
+            }
+        ));
+    }
+
+    #[test]
+    fn test_stream_json_invalid_line_skipped() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let ev = p.on_line("not json").unwrap();
+        assert!(ev.is_empty());
+    }
+
+    #[test]
+    fn test_stream_json_empty_line_skipped() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let ev = p.on_line("").unwrap();
+        assert!(ev.is_empty());
+    }
+
+    // --- Json interface ---
+
+    #[test]
+    fn test_json_interface_buffers_then_finish_parses() {
+        let mut p = make_parser(CliProfileInterface::Json);
+        let ev = p.on_line(r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}"#);
+        assert!(ev.unwrap().is_empty());
+        let ev = p.finish().unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "Hello"));
+    }
+
+    #[test]
+    fn test_json_interface_finish_empty() {
+        let mut p = make_parser(CliProfileInterface::Json);
+        let ev = p.finish().unwrap();
+        assert!(ev.is_empty());
+    }
+
+    // --- StreamReducer integration ---
+
+    #[test]
+    fn test_reducer_with_stream_json_sequence() {
+        let mut r = reducer();
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let lines = vec![
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hello"}]}}"#,
+            r#"{"type":"result","usage":{"input_tokens":50,"output_tokens":10}}"#,
+        ];
+        for line in &lines {
+            let events = p.on_line(line).unwrap();
+            r.process(events);
+        }
+        assert_eq!(r.response, "Hello");
+        let u = r.usage.expect("usage captured");
+        assert_eq!(u.prompt_tokens, 50);
+        assert_eq!(u.completion_tokens, 10);
+    }
+
+    #[test]
+    fn test_reducer_with_text_sequence() {
+        let mut r = reducer();
+        let mut p = make_parser(CliProfileInterface::Text);
+        for line in &["Hello", "World"] {
+            let events = p.on_line(line).unwrap();
+            r.process(events);
+        }
+        assert_eq!(r.response, "Hello\nWorld\n");
+    }
+
+    #[test]
+    fn test_reducer_with_json_interface() {
+        let mut r = reducer();
+        let mut p = make_parser(CliProfileInterface::Json);
+        p.on_line(r#"{"type":"result","result":"Final answer","usage":{"input_tokens":50,"output_tokens":10}}"#)
+            .unwrap();
+        let events = p.finish().unwrap();
+        r.process(events);
+        assert_eq!(r.response, "Final answer");
+        let u = r.usage.expect("usage captured");
+        assert_eq!(u.prompt_tokens, 50);
+        assert_eq!(u.completion_tokens, 10);
+    }
+
+    // --- Executor tests ---
+
+    fn request(prompt: &str, system_prompt: &str) -> ExecutionRequest {
+        ExecutionRequest {
+            prompt: prompt.to_string(),
+            model: "claude-opus-4-7".to_string(),
+            system_prompt: system_prompt.to_string(),
+            file_paths: None,
+            thread_id: None,
+            spool: Arc::new(Mutex::new(RunSpool::disabled())),
+        }
+    }
+
+    fn make_stdin_profile(command: &str, args: Vec<String>) -> SelectedCliProfile {
+        SelectedCliProfile {
+            backend: "claude-cli".to_string(),
+            name: "test".to_string(),
+            profile: crate::config::types::CliProfile {
+                command: command.to_string(),
+                args,
+                env: std::collections::BTreeMap::new(),
+                interface: CliProfileInterface::Text,
+                prompt: CliPromptMode::Stdin,
+                headless: true,
+            },
+        }
+    }
+
+    #[test]
+    fn executor_delivers_prompt_via_stdin() {
+        let profile = make_stdin_profile("sh", vec!["-c".to_string(), "cat".to_string()]);
+        let executor = ClaudeCliExecutor::new(profile);
+        let result = executor
+            .execute(request("hello from stdin", "system: you are a test"))
+            .expect("execute");
+        assert!(
+            result.response.contains("hello from stdin"),
+            "stdin prompt should appear in output"
+        );
+    }
+
+    #[test]
+    fn executor_delivers_prompt_via_argument() {
+        let profile = SelectedCliProfile {
+            backend: "claude-cli".to_string(),
+            name: "test".to_string(),
+            profile: crate::config::types::CliProfile {
+                command: "sh".to_string(),
+                args: vec![
+                    "-c".to_string(),
+                    "printf '%s\\n' \"$1\"".to_string(),
+                    "sh".to_string(),
+                ],
+                env: std::collections::BTreeMap::new(),
+                interface: CliProfileInterface::Text,
+                prompt: CliPromptMode::Argument,
+                headless: true,
+            },
+        };
+        let executor = ClaudeCliExecutor::new(profile);
+        let result = executor
+            .execute(request("hello as arg", "system: test"))
+            .expect("execute");
+        assert!(
+            result.response.contains("hello as arg"),
+            "argument prompt should appear in output"
+        );
+    }
+
+    #[test]
+    fn executor_passes_configured_args_and_env() {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("CLAUDE_CLI_TEST_VAR".to_string(), "env-value".to_string());
+        let profile = SelectedCliProfile {
+            backend: "claude-cli".to_string(),
+            name: "test".to_string(),
+            profile: crate::config::types::CliProfile {
+                command: "sh".to_string(),
+                args: vec![
+                    "-c".to_string(),
+                    "printf '%s\\n' \"$CLAUDE_CLI_TEST_VAR\"".to_string(),
+                ],
+                env,
+                interface: CliProfileInterface::Text,
+                prompt: CliPromptMode::Stdin,
+                headless: true,
+            },
+        };
+        let executor = ClaudeCliExecutor::new(profile);
+        let result = executor
+            .execute(request("", "system: test"))
+            .expect("execute");
+        assert_eq!(result.response.trim(), "env-value");
+    }
+
+    #[test]
+    fn executor_non_zero_exit_surfaces_error() {
+        let profile = make_stdin_profile(
+            "sh",
+            vec!["-c".to_string(), "echo oops 1>&2; exit 7".to_string()],
+        );
+        let executor = ClaudeCliExecutor::new(profile);
+        let err = executor
+            .execute(request("prompt", "system: test"))
+            .unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("exited with code 7"),
+            "should include exit code: {msg}"
+        );
+        assert!(msg.contains("oops"), "should include stderr: {msg}");
+    }
+
+    #[test]
+    fn executor_rejects_headless_false() {
+        let profile = SelectedCliProfile {
+            backend: "claude-cli".to_string(),
+            name: "test".to_string(),
+            profile: crate::config::types::CliProfile {
+                command: "sh".to_string(),
+                args: vec!["-c".to_string(), "echo ok".to_string()],
+                env: std::collections::BTreeMap::new(),
+                interface: CliProfileInterface::Text,
+                prompt: CliPromptMode::Stdin,
+                headless: false,
+            },
+        };
+        let executor = ClaudeCliExecutor::new(profile);
+        let err = executor
+            .execute(request("prompt", "system: test"))
+            .unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("headless"),
+            "should mention headless requirement: {msg}"
+        );
+    }
+
+    #[test]
+    fn executor_rejects_thread_resume() {
+        let profile = make_stdin_profile("sh", vec!["-c".to_string(), "echo ok".to_string()]);
+        let executor = ClaudeCliExecutor::new(profile);
+        let req = ExecutionRequest {
+            thread_id: Some("thr_abc".to_string()),
+            ..request("prompt", "system: test")
+        };
+        let err = executor.execute(req).unwrap_err();
+        let msg = format!("{:#}", err);
+        assert!(
+            msg.contains("thread resume"),
+            "should mention thread resume not supported: {msg}"
+        );
+    }
+}

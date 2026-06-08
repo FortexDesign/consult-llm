@@ -59,10 +59,7 @@ pub fn filter_by_availability(
             match provider {
                 Some(provider) => {
                     let cfg = &providers[&provider];
-                    match &cfg.backend {
-                        Backend::Api => cfg.api_key.is_some(),
-                        backend => backend.has_executor(),
-                    }
+                    cfg.has_executable_backend()
                 }
                 None => {
                     log_to_file(&format!(
@@ -162,6 +159,25 @@ mod tests {
         ]);
         let result = filter_by_availability(&models, &providers);
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_profile_cli_without_selected_profile_filters_models() {
+        let models = vec!["claude-opus-4-7".into(), "gpt-5.2".into()];
+        let providers = make_providers(&[
+            (
+                Provider::Anthropic,
+                None,
+                Backend::ProfileCli("claude-cli".to_string()),
+            ),
+            (Provider::OpenAI, Some("key"), Backend::Api),
+        ]);
+        let result = filter_by_availability(&models, &providers);
+        assert!(
+            !result.iter().any(|m| m.starts_with("claude")),
+            "claude models should not be enabled without a selected CLI profile"
+        );
+        assert!(result.iter().any(|m| m.starts_with("gpt")));
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 use std::time::Instant;
@@ -15,6 +16,21 @@ fn apply_workmux_disable_env(cmd: &mut Command) {
     );
 }
 
+/// When profile-backed CLI args may contain the full prompt (via argument
+/// prompt mode), redact them for logging to avoid leaking prompts into debug
+/// output.
+fn args_for_log(args: &[String], redact: bool) -> serde_json::Value {
+    if redact {
+        serde_json::Value::String(format!("[{} args redacted]", args.len()))
+    } else {
+        serde_json::Value::Array(
+            args.iter()
+                .map(|a| serde_json::Value::String(a.clone()))
+                .collect(),
+        )
+    }
+}
+
 #[derive(Debug)]
 pub struct CliResult {
     pub stdout_bytes: usize,
@@ -22,14 +38,17 @@ pub struct CliResult {
     pub code: Option<i32>,
 }
 
-/// Run a CLI command, calling `on_line` for each stdout line as it arrives.
+/// Run a CLI command with optional extra environment variables, calling
+/// `on_line` for each stdout line as it arrives.
+///
 /// When `stdin_data` is provided, it is written to the child's stdin (then
-/// closed) instead of connecting stdin to /dev/null. The stdin write, the
-/// stderr drain, and the stdout read run on three threads so a child that
-/// emits >~64KB before draining stdin doesn't deadlock.
-pub fn run_cli_streaming<F>(
+/// closed) instead of connecting stdin to /dev/null. The workmux disable env
+/// is always applied after any extra env so it cannot be overridden by profile
+/// configuration.
+pub fn run_cli_streaming_with_env<F>(
     command: &str,
     args: &[String],
+    extra_env: Option<&BTreeMap<String, String>>,
     stdin_data: Option<&str>,
     on_spawn: Option<Box<dyn FnOnce(u32) + Send>>,
     mut on_line: F,
@@ -38,18 +57,26 @@ where
     F: FnMut(&str) + Send,
 {
     let cwd = std::env::current_dir().unwrap_or_default();
+    let env_keys: Vec<&str> = extra_env
+        .map(|env| env.keys().map(|key| key.as_str()).collect())
+        .unwrap_or_default();
+    let args_for_log_val = args_for_log(args, extra_env.is_some());
     log_cli_debug(
         &format!("Spawning {command} CLI (streaming)"),
         Some(&serde_json::json!({
-            "args": args,
+            "args": args_for_log_val,
             "stdinLength": stdin_data.map(|s| s.len()),
             "cwd": cwd,
+            "envKeys": env_keys,
         })),
     );
 
     let use_stdin = stdin_data.is_some();
     let start = Instant::now();
     let mut cmd = Command::new(command);
+    if let Some(env) = extra_env {
+        cmd.envs(env);
+    }
     apply_workmux_disable_env(&mut cmd);
     cmd.args(args)
         .stdin(if use_stdin {
@@ -145,6 +172,22 @@ where
     Ok(result)
 }
 
+/// Run a CLI command, calling `on_line` for each stdout line as it arrives.
+/// Wrapper around `run_cli_streaming_with_env` that passes no extra env.
+#[allow(dead_code)]
+pub fn run_cli_streaming<F>(
+    command: &str,
+    args: &[String],
+    stdin_data: Option<&str>,
+    on_spawn: Option<Box<dyn FnOnce(u32) + Send>>,
+    on_line: F,
+) -> anyhow::Result<CliResult>
+where
+    F: FnMut(&str) + Send,
+{
+    run_cli_streaming_with_env(command, args, None, stdin_data, on_spawn, on_line)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +267,45 @@ mod tests {
         assert!(result.is_err());
         let msg = format!("{:#}", result.unwrap_err());
         assert!(msg.contains("Failed to spawn"));
+    }
+
+    #[test]
+    fn extra_env_reaches_child() {
+        let mut env = BTreeMap::new();
+        env.insert(
+            "CONSULT_LLM_TEST_PROFILE_ENV".to_string(),
+            "profile-value".to_string(),
+        );
+        let args = vec![
+            "-c".to_string(),
+            "printf '%s\\n' \"$CONSULT_LLM_TEST_PROFILE_ENV\"".to_string(),
+        ];
+        let mut got = String::new();
+        let result = run_cli_streaming_with_env("sh", &args, Some(&env), None, None, |line| {
+            got = line.to_string();
+        })
+        .expect("run");
+        assert_eq!(result.code, Some(0));
+        assert_eq!(got, "profile-value");
+    }
+
+    #[test]
+    fn workmux_disable_env_overrides_profile_env() {
+        let mut env = BTreeMap::new();
+        env.insert(
+            WORKMUX_DISABLE_SET_WINDOW_STATUS_ENV.to_string(),
+            "0".to_string(),
+        );
+        let args = vec![
+            "-c".to_string(),
+            "printf '%s\\n' \"$WORKMUX_DISABLE_SET_WINDOW_STATUS\"".to_string(),
+        ];
+        let mut got = String::new();
+        let result = run_cli_streaming_with_env("sh", &args, Some(&env), None, None, |line| {
+            got = line.to_string();
+        })
+        .expect("run");
+        assert_eq!(result.code, Some(0));
+        assert_eq!(got, "1");
     }
 }

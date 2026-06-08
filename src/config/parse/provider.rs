@@ -418,21 +418,19 @@ mod tests {
     }
 
     #[test]
-    fn test_profile_backed_backend_does_not_enable_models_in_config_contract() {
-        // Include another configured API key so overall config parsing succeeds.
+    fn test_profile_backed_backend_enables_anthropic_models() {
         let env = env_from(&[
             ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
             ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
-            ("OPENAI_API_KEY", "sk-key"),
         ]);
         let (config, _) =
             super::super::parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
         assert!(
-            !config
+            config
                 .allowed_models
                 .iter()
                 .any(|m| m.starts_with("claude")),
-            "claude models should not be enabled without an executor for profile-backed backends"
+            "claude models should be enabled for executable profile-backed backends"
         );
     }
 }

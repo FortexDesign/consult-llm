@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::config::{Backend, Config};
 use crate::executors::anthropic_api::AnthropicApiExecutor;
 use crate::executors::api::ApiExecutor;
+use crate::executors::claude_cli::ClaudeCliExecutor;
 use crate::executors::codex_cli::CodexCliExecutor;
 use crate::executors::cursor_cli::CursorCliExecutor;
 use crate::executors::gemini_cli::GeminiCliExecutor;
@@ -103,14 +104,69 @@ impl ExecutorProvider {
                 let prefix = cfg.opencode_provider_for(provider).to_string();
                 Arc::new(OpenCodeCliExecutor::new(prefix))
             }
+            Backend::ProfileCli(name) if name == "claude-cli" => {
+                let selected = cfg
+                    .selected_cli_profile_for(provider)
+                    .filter(|profile| profile.backend == *name)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "profile-backed backend '{name}' has no selected CLI profile for {provider:?}"
+                        )
+                    })?;
+                Arc::new(ClaudeCliExecutor::new(selected.clone()))
+            }
             Backend::ProfileCli(name) => {
-                anyhow::bail!(
-                    "profile-backed backend '{name}' is configured but execution is not implemented in this phase"
-                )
+                anyhow::bail!("profile-backed backend '{name}' has no executor")
             }
         };
 
         cache.insert(cache_key, executor.clone());
         Ok(executor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::parse::parse_config_with_cli_profiles;
+    use crate::config::types::{CliProfile, CliProfileInterface, CliPromptMode};
+    use std::collections::BTreeMap;
+
+    fn test_cli_profiles() -> BTreeMap<String, CliProfile> {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "claude".to_string(),
+            CliProfile {
+                command: "sh".to_string(),
+                args: vec!["-c".to_string(), "echo ok".to_string()],
+                env: BTreeMap::new(),
+                interface: CliProfileInterface::Text,
+                prompt: CliPromptMode::Stdin,
+                headless: true,
+            },
+        );
+        map
+    }
+
+    fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: std::collections::HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |key: &str| map.get(key).cloned()
+    }
+
+    #[test]
+    fn test_claude_cli_executor_is_created() {
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
+        ]);
+        let (config, _) = parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        let provider = ExecutorProvider::new(Arc::new(config));
+        let executor = provider
+            .get_executor("claude-opus-4-7")
+            .expect("should create claude cli executor");
+        assert_eq!(executor.backend_name(), "claude_cli");
     }
 }
