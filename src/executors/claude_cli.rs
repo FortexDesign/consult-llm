@@ -1,6 +1,6 @@
 use smallvec::smallvec;
 
-use super::stream::{ParsedStreamEvent, StreamEvents};
+use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{CliOutputParser, run_cli_executor_with_env};
 
@@ -111,71 +111,7 @@ impl ClaudeCliParser {
             return smallvec![];
         };
 
-        match event.get("type").and_then(|t| t.as_str()) {
-            Some("assistant") => {
-                self.has_assistant_text = true;
-                let text = self.extract_assistant_text(&event);
-                let mut events = smallvec![ParsedStreamEvent::AssistantText { text }];
-                if let Some(u) = event.get("usage")
-                    && let Some(usage) = extract_usage(u)
-                {
-                    events.push(usage);
-                }
-                events
-            }
-            Some("result") => {
-                let mut events: StreamEvents = smallvec![];
-                if !self.has_assistant_text
-                    && let Some(text) = event.get("result").and_then(|r| r.as_str())
-                {
-                    events.push(ParsedStreamEvent::AssistantText {
-                        text: text.to_string(),
-                    });
-                }
-                if let Some(u) = event.get("usage")
-                    && let Some(usage) = extract_usage(u)
-                {
-                    events.push(usage);
-                }
-                events
-            }
-            Some("error") => {
-                let msg = event
-                    .get("error")
-                    .and_then(|e| e.as_str())
-                    .or_else(|| {
-                        event
-                            .get("error")
-                            .and_then(|e| e.get("message"))
-                            .and_then(|m| m.as_str())
-                    })
-                    .unwrap_or("unknown error");
-                smallvec![ParsedStreamEvent::AssistantText {
-                    text: format!("Error: {msg}"),
-                }]
-            }
-            _ => smallvec![],
-        }
-    }
-
-    fn extract_assistant_text(&self, event: &serde_json::Value) -> String {
-        let Some(content) = event
-            .get("message")
-            .and_then(|m| m.get("content"))
-            .and_then(|c| c.as_array())
-        else {
-            return String::new();
-        };
-        content
-            .iter()
-            .filter_map(|block| {
-                if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                    block.get("text").and_then(|t| t.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.parse_stream_json_from_value(&event)
     }
 
     fn parse_json_document(&mut self, text: &str) -> StreamEvents {
@@ -190,51 +126,175 @@ impl ClaudeCliParser {
 
     fn parse_stream_json_from_value(&mut self, event: &serde_json::Value) -> StreamEvents {
         match event.get("type").and_then(|t| t.as_str()) {
-            Some("assistant") => {
-                self.has_assistant_text = true;
-                let text = self.extract_assistant_text(event);
-                let mut events = smallvec![ParsedStreamEvent::AssistantText { text }];
-                if let Some(u) = event.get("usage")
-                    && let Some(usage) = extract_usage(u)
-                {
-                    events.push(usage);
-                }
-                events
-            }
-            Some("result") => {
-                let mut events: StreamEvents = smallvec![];
-                if !self.has_assistant_text
-                    && let Some(text) = event.get("result").and_then(|r| r.as_str())
-                {
-                    events.push(ParsedStreamEvent::AssistantText {
-                        text: text.to_string(),
-                    });
-                }
-                if let Some(u) = event.get("usage")
-                    && let Some(usage) = extract_usage(u)
-                {
-                    events.push(usage);
-                }
-                events
-            }
-            Some("error") => {
-                let msg = event
-                    .get("error")
-                    .and_then(|e| e.as_str())
-                    .or_else(|| {
-                        event
-                            .get("error")
-                            .and_then(|e| e.get("message"))
-                            .and_then(|m| m.as_str())
-                    })
-                    .unwrap_or("unknown error");
-                smallvec![ParsedStreamEvent::AssistantText {
-                    text: format!("Error: {msg}"),
-                }]
-            }
+            Some("system") => self.parse_system_event(event),
+            Some("assistant") => self.parse_assistant_event(event),
+            Some("user") => self.parse_user_event(event),
+            Some("result") => self.parse_result_event(event),
+            Some("error") => smallvec![ParsedStreamEvent::AssistantText {
+                text: format!("Error: {}", extract_error_message(event)),
+            }],
             _ => smallvec![],
         }
     }
+
+    fn parse_system_event(&self, event: &serde_json::Value) -> StreamEvents {
+        match event.get("subtype").and_then(|s| s.as_str()) {
+            Some("init") => event
+                .get("session_id")
+                .and_then(|id| id.as_str())
+                .map(|id| smallvec![ParsedStreamEvent::SessionStarted { id: id.to_string() }])
+                .unwrap_or_else(|| smallvec![]),
+            Some("thinking_tokens") => smallvec![ParsedStreamEvent::Thinking {
+                text: String::new(),
+            }],
+            _ => smallvec![],
+        }
+    }
+
+    fn parse_assistant_event(&mut self, event: &serde_json::Value) -> StreamEvents {
+        let mut events: StreamEvents = smallvec![];
+        let Some(content) = event
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+        else {
+            return events;
+        };
+
+        for block in content {
+            match block.get("type").and_then(|t| t.as_str()) {
+                Some("thinking") => {
+                    events.push(ParsedStreamEvent::Thinking {
+                        text: block
+                            .get("thinking")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    });
+                }
+                Some("text") => {
+                    self.has_assistant_text = true;
+                    events.push(ParsedStreamEvent::AssistantText {
+                        text: block
+                            .get("text")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                    });
+                }
+                Some("tool_use") => {
+                    let call_id = block
+                        .get("id")
+                        .and_then(|id| id.as_str())
+                        .or_else(|| event.get("uuid").and_then(|id| id.as_str()))
+                        .unwrap_or("tool")
+                        .to_string();
+                    let name = block
+                        .get("name")
+                        .and_then(|name| name.as_str())
+                        .unwrap_or("tool");
+                    events.push(ParsedStreamEvent::ToolStarted {
+                        call_id,
+                        label: tool_label(name, tool_detail(block).as_deref()),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(u) = event.get("message").and_then(|m| m.get("usage"))
+            && let Some(usage) = extract_usage(u)
+        {
+            events.push(usage);
+        }
+        events
+    }
+
+    fn parse_user_event(&self, event: &serde_json::Value) -> StreamEvents {
+        let Some(content) = event
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+        else {
+            return smallvec![];
+        };
+
+        let mut events: StreamEvents = smallvec![];
+        for block in content {
+            if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                let call_id = block
+                    .get("tool_use_id")
+                    .and_then(|id| id.as_str())
+                    .unwrap_or("tool")
+                    .to_string();
+                let success = !block
+                    .get("is_error")
+                    .and_then(|is_error| is_error.as_bool())
+                    .unwrap_or(false);
+                let error = (!success).then(|| extract_tool_result_text(block));
+                events.push(ParsedStreamEvent::ToolFinished {
+                    call_id,
+                    success,
+                    error,
+                });
+            }
+        }
+        events
+    }
+
+    fn parse_result_event(&mut self, event: &serde_json::Value) -> StreamEvents {
+        let mut events: StreamEvents = smallvec![];
+        if !self.has_assistant_text
+            && let Some(text) = event.get("result").and_then(|r| r.as_str())
+        {
+            events.push(ParsedStreamEvent::AssistantText {
+                text: text.to_string(),
+            });
+        }
+        if let Some(u) = event.get("usage")
+            && let Some(usage) = extract_usage(u)
+        {
+            events.push(usage);
+        }
+        events
+    }
+}
+
+fn tool_detail(block: &serde_json::Value) -> Option<String> {
+    let input = block.get("input")?;
+    for key in ["file_path", "path", "pattern", "command", "cmd", "url"] {
+        if let Some(value) = input.get(key).and_then(|value| value.as_str())
+            && !value.is_empty()
+        {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn extract_tool_result_text(block: &serde_json::Value) -> String {
+    match block.get("content") {
+        Some(serde_json::Value::String(text)) => text.clone(),
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|text| text.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
+}
+
+fn extract_error_message(event: &serde_json::Value) -> &str {
+    event
+        .get("error")
+        .and_then(|e| e.as_str())
+        .or_else(|| {
+            event
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+        })
+        .unwrap_or("unknown error")
 }
 
 fn extract_usage(u: &serde_json::Value) -> Option<ParsedStreamEvent> {
@@ -338,12 +398,15 @@ mod tests {
     }
 
     #[test]
-    fn test_stream_json_assistant_skips_tool_use_content() {
+    fn test_stream_json_assistant_tool_use_content() {
         let mut p = make_parser(CliProfileInterface::StreamJson);
-        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Answer: "},{"type":"tool_use","name":"bash","input":{"cmd":"ls"}}]}}"#;
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Answer: "},{"type":"tool_use","id":"toolu_1","name":"bash","input":{"cmd":"ls"}}]}}"#;
         let ev = p.on_line(line).unwrap();
-        assert_eq!(ev.len(), 1);
+        assert_eq!(ev.len(), 2);
         assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text == "Answer: "));
+        assert!(
+            matches!(&ev[1], ParsedStreamEvent::ToolStarted { call_id, label } if call_id == "toolu_1" && label == "bash ls")
+        );
     }
 
     #[test]
@@ -351,8 +414,25 @@ mod tests {
         let mut p = make_parser(CliProfileInterface::StreamJson);
         let line = r#"{"type":"assistant","message":{"role":"assistant","content":[]}}"#;
         let ev = p.on_line(line).unwrap();
+        assert!(ev.is_empty());
+    }
+
+    #[test]
+    fn test_stream_json_thinking_content() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"checking"}]}}"#;
+        let ev = p.on_line(line).unwrap();
         assert_eq!(ev.len(), 1);
-        assert!(matches!(&ev[0], ParsedStreamEvent::AssistantText { text } if text.is_empty()));
+        assert!(matches!(&ev[0], ParsedStreamEvent::Thinking { text } if text == "checking"));
+    }
+
+    #[test]
+    fn test_stream_json_system_init_session() {
+        let mut p = make_parser(CliProfileInterface::StreamJson);
+        let line = r#"{"type":"system","subtype":"init","session_id":"sess_123"}"#;
+        let ev = p.on_line(line).unwrap();
+        assert_eq!(ev.len(), 1);
+        assert!(matches!(&ev[0], ParsedStreamEvent::SessionStarted { id } if id == "sess_123"));
     }
 
     #[test]
