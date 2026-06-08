@@ -1,15 +1,47 @@
 use std::collections::HashMap;
 
+use std::collections::BTreeMap;
+
 use crate::models::{PROVIDERS, Provider, ProviderSpec};
 
 use super::super::migrate::{migrate_backend_env, migrate_prefixed_env};
-use super::super::types::{Backend, ConfigError, ProviderRuntimeConfig};
+use super::super::types::{
+    Backend, CliProfile, ConfigError, ProviderRuntimeConfig, SelectedCliProfile,
+};
+
+/// Parse a backend string into a `Backend` variant, validating against provider spec.
+fn parse_backend(raw: &str, spec: &ProviderSpec) -> Result<Backend, ConfigError> {
+    if !spec.allowed_backends.contains(&raw) {
+        return Err(ConfigError::InvalidBackend {
+            env_var: spec.backend_env.to_string(),
+            raw: raw.to_string(),
+            allowed: spec
+                .allowed_backends
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        });
+    }
+    if spec.profile_backed_backends.contains(&raw) {
+        return Ok(Backend::ProfileCli(raw.to_string()));
+    }
+    Backend::from_builtin_str(raw).ok_or_else(|| ConfigError::InvalidBackend {
+        env_var: spec.backend_env.to_string(),
+        raw: raw.to_string(),
+        allowed: spec
+            .allowed_backends
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    })
+}
 
 /// Parse a single provider's runtime config from environment variables.
 fn parse_provider_config(
     spec: &ProviderSpec,
     env: &impl Fn(&str) -> Option<String>,
     opencode_global: &Option<String>,
+    cli_profiles: &BTreeMap<String, CliProfile>,
 ) -> Result<ProviderRuntimeConfig, ConfigError> {
     // 1. Resolve backend string through migration chain
     let backend_raw = if let Some(legacy_env) = spec.legacy_backend_env {
@@ -37,25 +69,11 @@ fn parse_provider_config(
         backend_raw
     };
 
-    // 2. Validate backend string against provider's allowed values
-    if let Some(ref raw) = resolved_backend_str
-        && !spec.allowed_backends.contains(&raw.as_str())
-    {
-        return Err(ConfigError::InvalidBackend {
-            env_var: spec.backend_env.to_string(),
-            raw: raw.clone(),
-            allowed: spec
-                .allowed_backends
-                .iter()
-                .map(|s| s.to_string())
-                .collect(),
-        });
-    }
-
-    let backend = resolved_backend_str
-        .as_deref()
-        .and_then(Backend::from_str)
-        .unwrap_or(Backend::Api);
+    // 2. Parse backend string into Backend variant
+    let backend = match resolved_backend_str {
+        Some(ref raw) => parse_backend(raw, spec)?,
+        None => Backend::Api,
+    };
 
     // 3. API key
     let api_key = env(spec.api_key_env);
@@ -65,21 +83,50 @@ fn parse_provider_config(
         .or_else(|| opencode_global.clone())
         .unwrap_or_else(|| spec.default_opencode_provider.to_string());
 
+    // 5. Selected CLI profile (only for profile-backed backends)
+    let selected_cli_profile = if spec.profile_backed_backends.contains(&backend.as_str()) {
+        let allowed: Vec<String> = cli_profiles.keys().cloned().collect();
+        let key = spec.cli_profile_env.to_string();
+        let Some(name) = env(spec.cli_profile_env) else {
+            return Err(ConfigError::MissingCliProfile {
+                key,
+                backend: backend.as_str().to_string(),
+                allowed,
+            });
+        };
+        let Some(profile) = cli_profiles.get(&name) else {
+            return Err(ConfigError::InvalidCliProfileReference {
+                key,
+                raw: name,
+                allowed,
+            });
+        };
+        Some(SelectedCliProfile {
+            backend: backend.as_str().to_string(),
+            name,
+            profile: profile.clone(),
+        })
+    } else {
+        None
+    };
+
     Ok(ProviderRuntimeConfig {
         api_key,
         backend,
         opencode_provider,
+        selected_cli_profile,
     })
 }
 
 pub fn parse_all_providers(
     env: &impl Fn(&str) -> Option<String>,
+    cli_profiles: &BTreeMap<String, CliProfile>,
 ) -> Result<HashMap<Provider, ProviderRuntimeConfig>, ConfigError> {
     let opencode_global = env("CONSULT_LLM_OPENCODE_PROVIDER");
 
     let mut providers = HashMap::new();
     for spec in PROVIDERS {
-        let provider_config = parse_provider_config(spec, env, &opencode_global)?;
+        let provider_config = parse_provider_config(spec, env, &opencode_global, cli_profiles)?;
         providers.insert(spec.provider, provider_config);
     }
     debug_assert_eq!(
@@ -254,7 +301,138 @@ mod tests {
             Backend::OpenCodeCli,
         ];
         for b in &backends {
-            assert_eq!(Backend::from_str(b.as_str()), Some(b.clone()));
+            assert_eq!(Backend::from_builtin_str(b.as_str()), Some(b.clone()));
         }
+    }
+
+    // --- Profile-backed backend tests ---
+
+    use super::super::super::types::{CliProfileInterface, CliPromptMode};
+
+    fn test_cli_profiles() -> BTreeMap<String, CliProfile> {
+        let mut map = BTreeMap::new();
+        map.insert(
+            "claude".to_string(),
+            CliProfile {
+                command: "claude".to_string(),
+                args: vec!["-p".to_string()],
+                env: BTreeMap::new(),
+                interface: CliProfileInterface::StreamJson,
+                prompt: CliPromptMode::Stdin,
+                headless: true,
+            },
+        );
+        map
+    }
+
+    #[test]
+    fn test_profile_backed_backend_exposes_selected_profile() {
+        // Include OPENAI_API_KEY so there is at least one enabled model;
+        // profile-backed backends do not enable models in this phase.
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
+            ("OPENAI_API_KEY", "sk-key"),
+        ]);
+        let (config, _) =
+            super::super::parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        let selected = config
+            .selected_cli_profile_for(Provider::Anthropic)
+            .unwrap();
+        assert_eq!(selected.backend, "claude-cli");
+        assert_eq!(selected.name, "claude");
+        assert_eq!(selected.profile.command, "claude");
+    }
+
+    #[test]
+    fn test_missing_cli_profile_reports_error() {
+        // MissingCliProfile: the env var is not set at all.
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("OPENAI_API_KEY", "sk-key"),
+        ]);
+        let err = super::super::parse_config_with_cli_profiles(env, BTreeMap::new()).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::MissingCliProfile {
+                ref key,
+                ref backend,
+                ref allowed,
+            } if key == "CONSULT_LLM_ANTHROPIC_CLI_PROFILE"
+                && backend == "claude-cli"
+                && allowed.is_empty()
+        ));
+    }
+
+    #[test]
+    fn test_invalid_cli_profile_reports_error() {
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "nonexistent"),
+        ]);
+        let err =
+            super::super::parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::InvalidCliProfileReference {
+                ref key,
+                ref raw,
+                ref allowed,
+            } if key == "CONSULT_LLM_ANTHROPIC_CLI_PROFILE"
+                && raw == "nonexistent"
+                && allowed == &vec!["claude".to_string()]
+        ));
+    }
+
+    #[test]
+    fn test_stale_cli_profile_ignored_when_backend_is_api() {
+        // When the backend is api (default), cli_profile is ignored even if set.
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
+            ("ANTHROPIC_API_KEY", "key"),
+        ]);
+        // No cli_profiles map needed since api backend doesn't use profiles
+        let (config, _) =
+            super::super::parse_config_with_cli_profiles(env, BTreeMap::new()).unwrap();
+        assert!(
+            config
+                .selected_cli_profile_for(Provider::Anthropic)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_unrelated_provider_rejects_profile_backed_backend() {
+        let env = env_from(&[
+            ("CONSULT_LLM_DEEPSEEK_BACKEND", "claude-cli"),
+            ("DEEPSEEK_API_KEY", "key"),
+        ]);
+        let err = super::super::parse_config_with_cli_profiles(env, BTreeMap::new()).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::InvalidBackend {
+                ref raw,
+                ..
+            } if raw == "claude-cli"
+        ));
+    }
+
+    #[test]
+    fn test_profile_backed_backend_does_not_enable_models_in_config_contract() {
+        // Include another configured API key so overall config parsing succeeds.
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
+            ("OPENAI_API_KEY", "sk-key"),
+        ]);
+        let (config, _) =
+            super::super::parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        assert!(
+            !config
+                .allowed_models
+                .iter()
+                .any(|m| m.starts_with("claude")),
+            "claude models should not be enabled without an executor for profile-backed backends"
+        );
     }
 }

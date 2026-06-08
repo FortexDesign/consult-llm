@@ -2,15 +2,16 @@ use crate::config;
 use crate::config::types::Backend;
 use crate::models::{PROVIDERS, Provider};
 
-fn backend_name_for_model(cfg: &config::Config, model: &str) -> &'static str {
+fn backend_name_for_model(cfg: &config::Config, model: &str) -> String {
     Provider::from_model(model)
-        .map(|p| cfg.backend_for(p).as_str())
+        .map(|p| cfg.backend_for(p).as_str().to_string())
         .or_else(|| {
             Provider::from_cursor_model(model).and_then(|p| {
-                (cfg.backend_for(p) == &Backend::CursorCli).then_some(Backend::CursorCli.as_str())
+                (cfg.backend_for(p) == &Backend::CursorCli)
+                    .then(|| Backend::CursorCli.as_str().to_string())
             })
         })
-        .unwrap_or("unknown")
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 pub fn run() -> anyhow::Result<()> {

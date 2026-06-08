@@ -13,6 +13,19 @@ const TEMPLATE: &str = r#"# consult-llm user config
 #   reasoning_effort: high
 # opencode:
 #   default_provider: copilot
+
+# CLI backend profiles
+# cli_profiles:
+#   claude:
+#     command: claude
+#     args: ["-p"]
+#     env: {}
+#     interface: stream-json
+#     prompt: stdin
+#     headless: true
+# anthropic:
+#   backend: claude-cli
+#   cli_profile: claude
 "#;
 
 pub fn run() -> anyhow::Result<()> {

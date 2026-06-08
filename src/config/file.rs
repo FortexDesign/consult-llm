@@ -1,9 +1,11 @@
 use serde::Deserialize;
 use serde::de::{Deserializer, Error as DeError};
 use serde_yaml::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::models::{PROVIDERS, Provider};
+
+use super::types::CliProfile;
 
 /// Top-level keys that map to typed fields rather than provider blocks. Listed once so
 /// the custom deserializer below can assert disjointness with provider IDs.
@@ -15,6 +17,7 @@ const TYPED_TOP_KEYS: &[&str] = &[
     "system_prompt_path",
     "no_update_check",
     "opencode",
+    "cli_profiles",
 ];
 
 #[derive(Debug, Default)]
@@ -31,6 +34,9 @@ pub struct ConfigFile {
     pub providers: HashMap<Provider, ProviderBlock>,
 
     pub opencode: Option<OpencodeBlock>,
+
+    /// Named CLI profile definitions for provider backends.
+    pub cli_profiles: BTreeMap<String, CliProfile>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -44,6 +50,8 @@ pub struct ProviderBlock {
     /// Tokenized with shell-style quoting; only honored for providers whose
     /// active backend is `codex-cli` (openai) or `gemini-cli` (gemini).
     pub extra_args: Option<String>,
+    /// Name of a CLI profile to use when the backend is profile-backed.
+    pub cli_profile: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -61,20 +69,35 @@ pub enum ApiKeyPolicy {
     Forbid,
 }
 
-/// Error returned when a committed project config contains API keys.
+/// Error returned when a committed project config contains values that should not be committed.
 #[derive(Debug)]
-pub struct ApiKeyInProjectConfig {
-    pub provider: &'static str,
+pub enum ProjectConfigPolicyError {
+    /// An API key was set in the project config.
+    ApiKey { provider: &'static str },
+    /// A literal env value was set in a CLI profile in the project config.
+    CliProfileEnv { profile: String },
 }
 
-impl std::fmt::Display for ApiKeyInProjectConfig {
+impl std::fmt::Display for ProjectConfigPolicyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "API keys are not allowed in the shared project config (.consult-llm.yaml). \
-             Move `{}.api_key` to .consult-llm.local.yaml or ~/.config/consult-llm/config.yaml.",
-            self.provider
-        )
+        match self {
+            ProjectConfigPolicyError::ApiKey { provider } => {
+                write!(
+                    f,
+                    "API keys are not allowed in the shared project config (.consult-llm.yaml). \
+                     Move `{}.api_key` to .consult-llm.local.yaml or ~/.config/consult-llm/config.yaml.",
+                    provider
+                )
+            }
+            ProjectConfigPolicyError::CliProfileEnv { profile } => {
+                write!(
+                    f,
+                    "Literal env values are not allowed in the shared project config (.consult-llm.yaml). \
+                     Move `cli_profiles.{profile}.env` to .consult-llm.local.yaml or ~/.config/consult-llm/config.yaml.",
+                    profile = profile
+                )
+            }
+        }
     }
 }
 
@@ -110,6 +133,11 @@ impl<'de> Deserialize<'de> for ConfigFile {
                 "system_prompt_path" => cfg.system_prompt_path = parse_inner(&key, v)?,
                 "no_update_check" => cfg.no_update_check = parse_inner(&key, v)?,
                 "opencode" => cfg.opencode = parse_inner(&key, v)?,
+                "cli_profiles" => {
+                    let profiles: BTreeMap<String, CliProfile> = parse_inner(&key, v)?;
+                    validate_cli_profiles(&profiles).map_err(D::Error::custom)?;
+                    cfg.cli_profiles = profiles;
+                }
                 _ => {
                     let provider = Provider::from_id(&key).ok_or_else(|| {
                         let known = known_top_keys_hint().join(", ");
@@ -157,6 +185,71 @@ fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<
             spec.id
         ));
     }
+    if let Some(backend) = &block.backend
+        && !spec.allowed_backends.contains(&backend.as_str())
+    {
+        let allowed = spec.allowed_backends.join(" | ");
+        return Err(format!(
+            "invalid key `{}.backend`: expected one of: {allowed}, received '{backend}'",
+            spec.id
+        ));
+    }
+    if let Some(profile) = &block.cli_profile {
+        if profile.trim().is_empty() {
+            return Err(format!(
+                "invalid key `{}.cli_profile`: profile name must be non-empty",
+                spec.id
+            ));
+        }
+        let backend = block.backend.as_deref().unwrap_or("api");
+        if !spec.profile_backed_backends.contains(&backend) {
+            let allowed = spec.profile_backed_backends.join(" | ");
+            let allowed_msg = if allowed.is_empty() {
+                "none".to_string()
+            } else {
+                format!("expected one of: {allowed}")
+            };
+            return Err(format!(
+                "unsupported provider field `cli_profile` for provider `{}` with backend `{backend}`. {allowed_msg}",
+                spec.id
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_cli_profiles(profiles: &BTreeMap<String, CliProfile>) -> Result<(), String> {
+    for (name, profile) in profiles {
+        if name.trim().is_empty() || name.contains('.') {
+            return Err(format!(
+                "invalid key `cli_profiles.{name}`: profile names must be non-empty and cannot contain '.'"
+            ));
+        }
+        validate_no_nul(&format!("cli_profiles.{name}.command"), &profile.command)?;
+        if profile.command.trim().is_empty() {
+            return Err(format!(
+                "invalid key `cli_profiles.{name}.command`: command must be non-empty"
+            ));
+        }
+        for (idx, arg) in profile.args.iter().enumerate() {
+            validate_no_nul(&format!("cli_profiles.{name}.args[{idx}]"), arg)?;
+        }
+        for (key, value) in &profile.env {
+            if key.trim().is_empty() || key.contains('=') {
+                return Err(format!(
+                    "invalid key `cli_profiles.{name}.env`: env keys must be non-empty and cannot contain '='"
+                ));
+            }
+            validate_no_nul(&format!("cli_profiles.{name}.env.{key}"), value)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_no_nul(path: &str, value: &str) -> Result<(), String> {
+    if value.contains('\0') {
+        return Err(format!("invalid key `{path}`: value contains NUL byte"));
+    }
     Ok(())
 }
 
@@ -191,7 +284,7 @@ impl ConfigFile {
     pub fn to_env_map(
         &self,
         policy: ApiKeyPolicy,
-    ) -> Result<HashMap<String, String>, ApiKeyInProjectConfig> {
+    ) -> Result<HashMap<String, String>, ProjectConfigPolicyError> {
         let mut m = HashMap::new();
         if let Some(v) = &self.default_model {
             m.insert("CONSULT_LLM_DEFAULT_MODEL".into(), v.clone());
@@ -226,7 +319,7 @@ impl ConfigFile {
                 let trimmed = v.trim();
                 if !trimmed.is_empty() {
                     if policy == ApiKeyPolicy::Forbid {
-                        return Err(ApiKeyInProjectConfig { provider: spec.id });
+                        return Err(ProjectConfigPolicyError::ApiKey { provider: spec.id });
                     }
                     m.insert(spec.api_key_env.to_string(), trimmed.to_string());
                 }
@@ -245,6 +338,20 @@ impl ConfigFile {
             if let (Some(env), Some(v)) = (spec.extra_args_env, &block.extra_args) {
                 m.insert(env.to_string(), v.clone());
             }
+            if let Some(v) = &block.cli_profile {
+                m.insert(spec.cli_profile_env.to_string(), v.clone());
+            }
+        }
+
+        // Reject literal env values in CLI profiles in project config.
+        if policy == ApiKeyPolicy::Forbid {
+            for (name, profile) in &self.cli_profiles {
+                if !profile.env.is_empty() {
+                    return Err(ProjectConfigPolicyError::CliProfileEnv {
+                        profile: name.clone(),
+                    });
+                }
+            }
         }
 
         if let Some(oc) = &self.opencode
@@ -260,6 +367,7 @@ impl ConfigFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::types::{CliProfileInterface, CliPromptMode};
 
     /// Test helper: build a `ConfigFile` with the given provider blocks. Keeps tests
     /// readable now that provider blocks live in a HashMap rather than typed fields.
@@ -512,7 +620,9 @@ opencode:
             },
         )]);
         let err = cfg.to_env_map(ApiKeyPolicy::Forbid).unwrap_err();
-        assert_eq!(err.provider, "gemini");
+        assert!(
+            matches!(err, ProjectConfigPolicyError::ApiKey { provider } if provider == "gemini")
+        );
     }
 
     #[test]
@@ -525,7 +635,7 @@ opencode:
             },
         )]);
         let err = cfg.to_env_map(ApiKeyPolicy::Forbid).unwrap_err();
-        assert_eq!(err.provider, "grok");
+        assert!(matches!(err, ProjectConfigPolicyError::ApiKey { provider } if provider == "grok"));
     }
 
     #[test]
@@ -613,5 +723,155 @@ opencode:
         assert!(m.contains_key("DEEPSEEK_API_KEY"));
         assert!(m.contains_key("MINIMAX_API_KEY"));
         assert!(m.contains_key("XAI_API_KEY"));
+    }
+
+    // --- CLI profile tests ---
+
+    #[test]
+    fn test_parse_cli_profiles_full_shape() {
+        let cfg = ConfigFile::parse(
+            r#"
+cli_profiles:
+  claude:
+    command: claude
+    args: ["-p", "--output-format", "stream-json"]
+    env:
+      CLAUDE_CONFIG_DIR: /tmp/claude
+    interface: stream-json
+    prompt: stdin
+    headless: true
+"#,
+        )
+        .unwrap();
+        let profile = &cfg.cli_profiles["claude"];
+        assert_eq!(profile.command, "claude");
+        assert_eq!(profile.args, vec!["-p", "--output-format", "stream-json"]);
+        assert_eq!(profile.env["CLAUDE_CONFIG_DIR"], "/tmp/claude");
+        assert_eq!(profile.interface, CliProfileInterface::StreamJson);
+        assert_eq!(profile.prompt, CliPromptMode::Stdin);
+        assert!(profile.headless);
+    }
+
+    #[test]
+    fn test_provider_cli_profile_maps_to_env_key() {
+        let cfg = ConfigFile::parse("anthropic:\n  backend: claude-cli\n  cli_profile: claude\n")
+            .unwrap();
+        let m = cfg.to_env_map(ApiKeyPolicy::Allow).unwrap();
+        assert_eq!(m["CONSULT_LLM_ANTHROPIC_CLI_PROFILE"], "claude");
+    }
+
+    #[test]
+    fn test_parse_rejects_empty_cli_profile_name() {
+        let err = ConfigFile::parse(
+            r#"
+cli_profiles:
+  "":
+    command: claude
+    interface: text
+    prompt: stdin
+"#,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cli_profiles."));
+        assert!(msg.contains("non-empty"));
+    }
+
+    #[test]
+    fn test_parse_rejects_dot_in_cli_profile_name() {
+        let err = ConfigFile::parse(
+            r#"
+cli_profiles:
+  my.profile:
+    command: claude
+    interface: text
+    prompt: stdin
+"#,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cannot contain '.'"));
+    }
+
+    #[test]
+    fn test_parse_rejects_empty_cli_profile_command() {
+        let err = ConfigFile::parse(
+            r#"
+cli_profiles:
+  test:
+    command: ""
+    interface: text
+    prompt: stdin
+"#,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("command"));
+        assert!(msg.contains("non-empty"));
+    }
+
+    #[test]
+    fn test_parse_rejects_unknown_cli_profile_field() {
+        let err = ConfigFile::parse(
+            r#"
+cli_profiles:
+  test:
+    command: claude
+    interface: text
+    prompt: stdin
+    unknown_field: oops
+"#,
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unknown_field"));
+    }
+
+    #[test]
+    fn test_parse_rejects_blank_provider_cli_profile() {
+        let err = ConfigFile::parse("anthropic:\n  cli_profile: \"\"\n").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cli_profile"));
+        assert!(msg.contains("non-empty"));
+    }
+
+    #[test]
+    fn test_parse_rejects_unsupported_cli_profile_on_non_profile_backend() {
+        let err = ConfigFile::parse("anthropic:\n  cli_profile: claude\n").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cli_profile"));
+        assert!(msg.contains("unsupported"));
+    }
+
+    #[test]
+    fn test_project_config_rejects_cli_profile_env() {
+        let cfg = ConfigFile::parse(
+            r#"
+cli_profiles:
+  claude:
+    command: claude
+    interface: text
+    prompt: stdin
+    env:
+      SECRET: s3cret
+"#,
+        )
+        .unwrap();
+        let err = cfg.to_env_map(ApiKeyPolicy::Forbid).unwrap_err();
+        assert!(matches!(
+            err,
+            ProjectConfigPolicyError::CliProfileEnv { .. }
+        ));
+        let msg = err.to_string();
+        assert!(msg.contains("cli_profiles"));
+        assert!(msg.contains(".env"));
+    }
+
+    #[test]
+    fn test_parse_rejects_invalid_backend_value_in_config() {
+        let err = ConfigFile::parse("anthropic:\n  backend: invalid-value\n").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("anthropic.backend"));
+        assert!(msg.contains("invalid-value"));
     }
 }

@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use crate::config::file::ApiKeyPolicy;
+use crate::config::types::CliProfile;
 
 #[derive(Debug, Clone)]
 pub enum Source {
@@ -31,13 +32,19 @@ pub struct LoadError {
     pub message: String,
 }
 
+type FileLayer = (
+    Source,
+    HashMap<String, String>,
+    BTreeMap<String, CliProfile>,
+);
+
 pub struct LayeredEnv {
-    file_layers: Vec<(Source, HashMap<String, String>)>,
+    file_layers: Vec<FileLayer>,
 }
 
 impl LayeredEnv {
     pub fn load(paths: &crate::config::discovery::DiscoveredPaths) -> Result<Self, LoadError> {
-        let mut file_layers: Vec<(Source, HashMap<String, String>)> = Vec::new();
+        let mut file_layers: Vec<FileLayer> = Vec::new();
 
         for (src_ctor, path, policy) in [
             (
@@ -61,7 +68,8 @@ impl LayeredEnv {
                     path: p.clone(),
                     message: e.to_string(),
                 })?;
-                file_layers.push((src_ctor(p.clone()), env_map));
+                let profiles = cfg.cli_profiles.clone();
+                file_layers.push((src_ctor(p.clone()), env_map, profiles));
             }
         }
 
@@ -77,7 +85,7 @@ impl LayeredEnv {
         }
         // File layers keep empty strings so explicit empty lists (e.g. `allowed_models: []`)
         // override lower layers instead of falling through.
-        for (src, map) in &self.file_layers {
+        for (src, map, _) in &self.file_layers {
             if let Some(v) = map.get(key) {
                 return Some((v.clone(), src.clone()));
             }
@@ -90,6 +98,20 @@ impl LayeredEnv {
             }
         }
         None
+    }
+
+    /// Returns all configured CLI profiles merged across layers with the correct
+    /// precedence (project-local overrides project, project overrides user).
+    pub fn cli_profiles(&self) -> BTreeMap<String, CliProfile> {
+        let mut merged = BTreeMap::new();
+        // file_layers are stored in highest-first order (project-local, project, user).
+        // Reversed for merge: user first, then project, then project-local overwrites.
+        for (_, _, profiles) in self.file_layers.iter().rev() {
+            for (name, profile) in profiles {
+                merged.insert(name.clone(), profile.clone());
+            }
+        }
+        merged
     }
 
     pub fn as_env_fn(&self) -> impl Fn(&str) -> Option<String> + '_ {

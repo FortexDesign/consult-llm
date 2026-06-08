@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::catalog::ModelRegistry;
 
-use super::types::{Config, ConfigError};
+use super::types::{CliProfile, Config, ConfigError};
 
 mod defaults;
 mod env;
@@ -13,10 +14,20 @@ pub use env::parse_extra_args;
 
 /// Pure config parsing: takes an env-lookup function, returns Config + ModelRegistry or an error.
 /// Does not read real env vars, call process::exit, or set globals.
+#[allow(dead_code)]
 pub fn parse_config(
     env: impl Fn(&str) -> Option<String>,
 ) -> Result<(Config, Arc<ModelRegistry>), ConfigError> {
-    let providers = provider::parse_all_providers(&env)?;
+    parse_config_with_cli_profiles(env, BTreeMap::new())
+}
+
+/// Pure config parsing with CLI profiles: takes an env-lookup function and a profile map.
+/// Returns Config + ModelRegistry or an error.
+pub fn parse_config_with_cli_profiles(
+    env: impl Fn(&str) -> Option<String>,
+    cli_profiles: BTreeMap<String, CliProfile>,
+) -> Result<(Config, Arc<ModelRegistry>), ConfigError> {
+    let providers = provider::parse_all_providers(&env, &cli_profiles)?;
     let enabled_models = registry::resolve_enabled_models(&env, &providers)?;
 
     let resolved_default = defaults::resolve_default_model(&env, &enabled_models)?;
@@ -43,6 +54,7 @@ pub fn parse_config(
         api_idle_timeout,
         system_prompt_path: env("CONSULT_LLM_SYSTEM_PROMPT_PATH"),
         allowed_models: enabled_models.clone(),
+        cli_profiles,
     };
 
     let registry = registry::build_registry(enabled_models, resolved_default);
@@ -78,6 +90,7 @@ pub(super) mod test_helpers {
                         api_key: key.map(|k| k.to_string()),
                         backend: backend.clone(),
                         opencode_provider: String::new(),
+                        selected_cli_profile: None,
                     },
                 )
             })

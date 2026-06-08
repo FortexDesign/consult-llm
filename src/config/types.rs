@@ -13,10 +13,11 @@ pub enum Backend {
     GeminiCli,
     CursorCli,
     OpenCodeCli,
+    ProfileCli(String),
 }
 
 impl Backend {
-    pub fn from_str(s: &str) -> Option<Backend> {
+    pub fn from_builtin_str(s: &str) -> Option<Backend> {
         match s {
             "api" => Some(Backend::Api),
             "codex-cli" => Some(Backend::CodexCli),
@@ -27,14 +28,19 @@ impl Backend {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Backend::Api => "api",
             Backend::CodexCli => "codex-cli",
             Backend::GeminiCli => "gemini-cli",
             Backend::CursorCli => "cursor-cli",
             Backend::OpenCodeCli => "opencode",
+            Backend::ProfileCli(raw) => raw.as_str(),
         }
+    }
+
+    pub fn has_executor(&self) -> bool {
+        !matches!(self, Backend::ProfileCli(_))
     }
 }
 
@@ -44,6 +50,44 @@ pub struct ProviderRuntimeConfig {
     pub api_key: Option<String>,
     pub backend: Backend,
     pub opencode_provider: String,
+    #[allow(dead_code)]
+    pub selected_cli_profile: Option<SelectedCliProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CliProfileInterface {
+    Text,
+    Json,
+    StreamJson,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CliPromptMode {
+    Stdin,
+    Argument,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CliProfile {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: std::collections::BTreeMap<String, String>,
+    pub interface: CliProfileInterface,
+    pub prompt: CliPromptMode,
+    #[serde(default)]
+    pub headless: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectedCliProfile {
+    pub backend: String,
+    pub name: String,
+    pub profile: CliProfile,
 }
 
 #[derive(Debug)]
@@ -58,6 +102,8 @@ pub struct Config {
     pub api_idle_timeout: Duration,
     pub system_prompt_path: Option<String>,
     pub allowed_models: Vec<String>,
+    #[allow(dead_code)]
+    pub cli_profiles: std::collections::BTreeMap<String, CliProfile>,
 }
 
 impl Config {
@@ -80,6 +126,18 @@ impl Config {
     /// Iterate over all provider runtime configs.
     pub fn iter_providers(&self) -> impl Iterator<Item = (&Provider, &ProviderRuntimeConfig)> {
         self.providers.iter()
+    }
+
+    #[allow(dead_code)]
+    /// Get the selected CLI profile for a provider, if any.
+    pub fn selected_cli_profile_for(&self, provider: Provider) -> Option<&SelectedCliProfile> {
+        self.providers[&provider].selected_cli_profile.as_ref()
+    }
+
+    #[allow(dead_code)]
+    /// Get all configured CLI profiles.
+    pub fn all_cli_profiles(&self) -> &std::collections::BTreeMap<String, CliProfile> {
+        &self.cli_profiles
     }
 }
 
@@ -111,6 +169,16 @@ pub enum ConfigError {
     ConfigFile {
         path: PathBuf,
         message: String,
+    },
+    MissingCliProfile {
+        key: String,
+        backend: String,
+        allowed: Vec<String>,
+    },
+    InvalidCliProfileReference {
+        key: String,
+        raw: String,
+        allowed: Vec<String>,
     },
 }
 
@@ -184,6 +252,32 @@ impl fmt::Display for ConfigError {
                 path.display(),
                 message,
             ),
+            ConfigError::MissingCliProfile {
+                key,
+                backend,
+                allowed,
+            } => {
+                let opts = allowed
+                    .iter()
+                    .map(|v| format!("'{v}'"))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                write!(
+                    f,
+                    "Invalid environment variables:\n  {key}: CLI profile required for backend '{backend}' but no profile set. Expected one of: {opts}"
+                )
+            }
+            ConfigError::InvalidCliProfileReference { key, raw, allowed } => {
+                let opts = allowed
+                    .iter()
+                    .map(|v| format!("'{v}'"))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                write!(
+                    f,
+                    "Invalid environment variables:\n  {key}: Invalid CLI profile '{raw}'. Expected one of: {opts}"
+                )
+            }
         }
     }
 }

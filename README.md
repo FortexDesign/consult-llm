@@ -427,14 +427,14 @@ A **backend** is how `consult-llm` reaches that model family:
 - **`api`**: direct HTTP calls using an API key
 - **CLI backends**: shell out to a local CLI tool already installed and logged in
 
-| Model family | `api` backend | CLI backends available                 | API key env var     |
-| ------------ | ------------- | -------------------------------------- | ------------------- |
-| Gemini       | yes           | `gemini-cli`, `cursor-cli`, `opencode` | `GEMINI_API_KEY`    |
-| OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`  | `OPENAI_API_KEY`    |
-| DeepSeek     | yes           | `opencode`                             | `DEEPSEEK_API_KEY`  |
-| MiniMax      | yes           | `opencode`                             | `MINIMAX_API_KEY`   |
-| Anthropic    | yes           | none                                   | `ANTHROPIC_API_KEY` |
-| Grok         | yes           | none                                   | `XAI_API_KEY`       |
+| Model family | `api` backend | CLI backends available                         | API key env var     |
+| ------------ | ------------- | ---------------------------------------------- | ------------------- |
+| Gemini       | yes           | `gemini-cli`, `cursor-cli`, `opencode`         | `GEMINI_API_KEY`    |
+| OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`          | `OPENAI_API_KEY`    |
+| DeepSeek     | yes           | `opencode`                                     | `DEEPSEEK_API_KEY`  |
+| MiniMax      | yes           | `opencode`                                     | `MINIMAX_API_KEY`   |
+| Anthropic    | yes           | `claude-cli` (config only), `cursor-cli`       | `ANTHROPIC_API_KEY` |
+| Grok         | yes           | none                                           | `XAI_API_KEY`       |
 
 ### API backend
 
@@ -739,6 +739,12 @@ Environment variables override config file values.
 | `CONSULT_LLM_CODEX_EXTRA_ARGS`           | Extra CLI args appended to `codex exec` (shell-quoted)                                 | e.g. `--dangerously-bypass-approvals-and-sandbox` |                                          |
 | `CONSULT_LLM_GEMINI_EXTRA_ARGS`          | Extra CLI args appended to `gemini` (shell-quoted)                                     | shell-quoted args                                 |                                          |
 | `CONSULT_LLM_OPENCODE_PROVIDER`          | Default OpenCode provider prefix for all models                                        | provider name                                     | per-model default                        |
+| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`      | CLI profile name when `anthropic.backend` is `claude-cli` (config only)                | profile name                                       |                                          |
+| `CONSULT_LLM_GEMINI_CLI_PROFILE`         | CLI profile name for profile-backed Gemini backends                                    | profile name                                       |                                          |
+| `CONSULT_LLM_OPENAI_CLI_PROFILE`         | CLI profile name for profile-backed OpenAI backends                                    | profile name                                       |                                          |
+| `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`       | CLI profile name for profile-backed DeepSeek backends                                  | profile name                                       |                                          |
+| `CONSULT_LLM_MINIMAX_CLI_PROFILE`        | CLI profile name for profile-backed MiniMax backends                                   | profile name                                       |                                          |
+| `CONSULT_LLM_GROK_CLI_PROFILE`           | CLI profile name for profile-backed Grok backends                                      | profile name                                       |                                          |
 | `CONSULT_LLM_OPENCODE_OPENAI_PROVIDER`   | OpenCode provider for OpenAI models                                                    | provider name                                     | `openai`                                 |
 | `CONSULT_LLM_OPENCODE_GEMINI_PROVIDER`   | OpenCode provider for Gemini models                                                    | provider name                                     | `google`                                 |
 | `CONSULT_LLM_OPENCODE_DEEPSEEK_PROVIDER` | OpenCode provider for DeepSeek models                                                  | provider name                                     | `deepseek`                               |

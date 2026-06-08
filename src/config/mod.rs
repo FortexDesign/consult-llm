@@ -25,6 +25,7 @@ pub fn init_config() -> Result<(Arc<Config>, Arc<ModelRegistry>), ConfigError> {
         message: e.message,
     })?;
 
-    let (config, registry) = parse::parse_config(layered.as_env_fn())?;
+    let (config, registry) =
+        parse::parse_config_with_cli_profiles(layered.as_env_fn(), layered.cli_profiles())?;
     Ok((Arc::new(config), registry))
 }

@@ -113,6 +113,10 @@ pub struct ProviderSpec {
     /// Env var that carries the YAML-block `extra_args` value, if this provider exposes
     /// one (openai → `CONSULT_LLM_CODEX_EXTRA_ARGS`, gemini → `CONSULT_LLM_GEMINI_EXTRA_ARGS`).
     pub extra_args_env: Option<&'static str>,
+    /// Env var key for the CLI profile name (e.g. "CONSULT_LLM_ANTHROPIC_CLI_PROFILE").
+    pub cli_profile_env: &'static str,
+    /// Backend values that are profile-backed rather than built-in (e.g. &["claude-cli"]).
+    pub profile_backed_backends: &'static [&'static str],
 }
 
 /// All known providers in deterministic order. Derived integrity tests verify this
@@ -162,6 +166,8 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         default_opencode_provider: "google",
         reasoning_effort_env: None,
         extra_args_env: Some("CONSULT_LLM_GEMINI_EXTRA_ARGS"),
+        cli_profile_env: "CONSULT_LLM_GEMINI_CLI_PROFILE",
+        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::DeepSeek,
@@ -185,6 +191,8 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         default_opencode_provider: "deepseek",
         reasoning_effort_env: None,
         extra_args_env: None,
+        cli_profile_env: "CONSULT_LLM_DEEPSEEK_CLI_PROFILE",
+        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::OpenAI,
@@ -220,6 +228,8 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         default_opencode_provider: "openai",
         reasoning_effort_env: Some("CONSULT_LLM_CODEX_REASONING_EFFORT"),
         extra_args_env: Some("CONSULT_LLM_CODEX_EXTRA_ARGS"),
+        cli_profile_env: "CONSULT_LLM_OPENAI_CLI_PROFILE",
+        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::MiniMax,
@@ -246,6 +256,8 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         default_opencode_provider: "minimax",
         reasoning_effort_env: None,
         extra_args_env: None,
+        cli_profile_env: "CONSULT_LLM_MINIMAX_CLI_PROFILE",
+        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::Anthropic,
@@ -261,11 +273,13 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api", "cursor-cli"],
+        allowed_backends: &["api", "cursor-cli", "claude-cli"],
         opencode_env: "CONSULT_LLM_OPENCODE_ANTHROPIC_PROVIDER",
         default_opencode_provider: "anthropic",
         reasoning_effort_env: None,
         extra_args_env: None,
+        cli_profile_env: "CONSULT_LLM_ANTHROPIC_CLI_PROFILE",
+        profile_backed_backends: &["claude-cli"],
     },
     ProviderSpec {
         provider: Provider::Grok,
@@ -289,6 +303,8 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         default_opencode_provider: "xai",
         reasoning_effort_env: None,
         extra_args_env: None,
+        cli_profile_env: "CONSULT_LLM_GROK_CLI_PROFILE",
+        profile_backed_backends: &[],
     },
 ];
 
@@ -368,6 +384,7 @@ pub fn selector_priorities() -> impl Iterator<Item = (&'static str, &'static [&'
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Backend;
     use std::collections::HashSet;
 
     fn assert_prefixes_do_not_overlap(prefixes: Vec<(&str, &str)>, name: &str) {
@@ -493,6 +510,27 @@ mod tests {
             if let Some(env) = spec.extra_args_env {
                 assert!(!env.is_empty());
                 assert!(matches!(spec.provider, Provider::Gemini | Provider::OpenAI));
+            }
+            assert!(!spec.cli_profile_env.is_empty());
+            for backend in spec.profile_backed_backends {
+                assert!(
+                    spec.allowed_backends.contains(backend),
+                    "profile-backed backend {backend:?} not in allowed_backends for {:?}",
+                    spec.id
+                );
+                assert!(
+                    Backend::from_builtin_str(backend).is_none(),
+                    "profile-backed backend {backend:?} for {:?} is a built-in backend",
+                    spec.id
+                );
+            }
+            for backend in spec.allowed_backends {
+                assert!(
+                    Backend::from_builtin_str(backend).is_some()
+                        || spec.profile_backed_backends.contains(backend),
+                    "allowed backend {backend:?} for {:?} must be built-in or profile-backed",
+                    spec.id
+                );
             }
         }
 

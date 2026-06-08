@@ -103,6 +103,11 @@ impl ExecutorProvider {
                 let prefix = cfg.opencode_provider_for(provider).to_string();
                 Arc::new(OpenCodeCliExecutor::new(prefix))
             }
+            Backend::ProfileCli(name) => {
+                anyhow::bail!(
+                    "profile-backed backend '{name}' is configured but execution is not implemented in this phase"
+                )
+            }
         };
 
         cache.insert(cache_key, executor.clone());

@@ -59,8 +59,10 @@ pub fn filter_by_availability(
             match provider {
                 Some(provider) => {
                     let cfg = &providers[&provider];
-                    // CLI backends don't need API keys
-                    cfg.backend != Backend::Api || cfg.api_key.is_some()
+                    match &cfg.backend {
+                        Backend::Api => cfg.api_key.is_some(),
+                        backend => backend.has_executor(),
+                    }
                 }
                 None => {
                     log_to_file(&format!(

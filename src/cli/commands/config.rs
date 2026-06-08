@@ -151,6 +151,7 @@ fn set_nested_key(node: &mut Value, key: &str, value: Value) -> anyhow::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::file::ConfigFile;
     use serde_yaml::Value;
 
     fn mapping() -> Value {
@@ -210,5 +211,53 @@ mod tests {
         assert!(validate_key_path("default_model").is_ok());
         assert!(validate_key_path("gemini.backend").is_ok());
         assert!(validate_key_path("opencode.default_provider").is_ok());
+    }
+
+    #[test]
+    fn test_invalid_config_after_set_rejected() {
+        // Setting a value that produces an invalid config must be rejected.
+        let mut doc = mapping();
+        set_nested_key(
+            &mut doc,
+            "cli_profiles.claude.command",
+            Value::String("claude".into()),
+        )
+        .unwrap();
+        let out = serde_yaml::to_string(&doc).unwrap();
+        // Incomplete profile (missing required interface/prompt fields) should fail.
+        assert!(ConfigFile::parse(&out).is_err());
+    }
+
+    #[test]
+    fn test_set_cli_profile_nested_keys_valid() {
+        // Setting all required fields for a profile should produce valid config.
+        let mut doc = mapping();
+        set_nested_key(
+            &mut doc,
+            "cli_profiles.claude.command",
+            Value::String("claude".into()),
+        )
+        .unwrap();
+        set_nested_key(
+            &mut doc,
+            "cli_profiles.claude.args",
+            Value::Sequence(vec![Value::String("-p".into())]),
+        )
+        .unwrap();
+        set_nested_key(
+            &mut doc,
+            "cli_profiles.claude.interface",
+            Value::String("stream-json".into()),
+        )
+        .unwrap();
+        set_nested_key(
+            &mut doc,
+            "cli_profiles.claude.prompt",
+            Value::String("stdin".into()),
+        )
+        .unwrap();
+        let out = serde_yaml::to_string(&doc).unwrap();
+        let parsed = ConfigFile::parse(&out).unwrap();
+        assert!(parsed.cli_profiles.contains_key("claude"));
     }
 }
