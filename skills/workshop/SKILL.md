@@ -127,7 +127,7 @@ Propose 2–3 distinct approaches. Approaches must differ in their underlying st
 Do not propose implementations or pseudo-code. Do not pick a winner. Do not soften trade-offs.
 ```
 
-Invoke `consult-llm` with one `-m <selector>` per expert and `-f` for relevant files. **With `--consult-first`:** pass `-t <group_thread_id>` from Phase 0.5 so experts retain the clarification context — only the finalized problem statement needs to go in the new prompt. Capture the `[thread_id:group_xxx]` from line 1 — needed for Phase 4 critique continuation.
+Invoke `consult-llm` with `-f` for relevant files. If explicit expert flags were supplied, pass one `-m <selector>` per expert. Otherwise omit `-m` so consult-llm applies configured defaults. **With `--consult-first`:** pass `-t <group_thread_id>` from Phase 0.5 so experts retain the clarification context. Only the finalized problem statement needs to go in the new prompt. Capture the `[thread_id:group_xxx]` from line 1, which is needed for Phase 4 critique continuation.
 
 ### Synthesize approaches
 

@@ -69,7 +69,7 @@ If both commands return nothing, stop and report there's nothing to review again
 Invoke `consult-llm` **once** with:
 
 - `--task review`
-- one `-m <selector>` per reviewer
+- one `-m <selector>` per reviewer if explicit reviewer flags were supplied, otherwise omit `-m` so consult-llm applies configured defaults
 - one `--diff-files <path>` per changed file
 - `--diff-base <ref>`
 
