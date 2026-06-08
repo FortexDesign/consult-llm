@@ -429,12 +429,12 @@ A **backend** is how `consult-llm` reaches that model family:
 
 | Model family | `api` backend | CLI backends available                         | API key env var     |
 | ------------ | ------------- | ---------------------------------------------- | ------------------- |
-| Gemini       | yes           | `gemini-cli`, `cursor-cli`, `opencode`         | `GEMINI_API_KEY`    |
-| OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`          | `OPENAI_API_KEY`    |
-| DeepSeek     | yes           | `opencode`                                     | `DEEPSEEK_API_KEY`  |
-| MiniMax      | yes           | `opencode`                                     | `MINIMAX_API_KEY`   |
-| Anthropic    | yes           | `claude-cli`, `cursor-cli`                     | `ANTHROPIC_API_KEY` |
-| Grok         | yes           | none                                           | `XAI_API_KEY`       |
+| Gemini       | yes           | `gemini-cli`, `cursor-cli`, `opencode`, `profile` | `GEMINI_API_KEY`    |
+| OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`, `profile`  | `OPENAI_API_KEY`    |
+| DeepSeek     | yes           | `opencode`, `profile`                          | `DEEPSEEK_API_KEY`  |
+| MiniMax      | yes           | `opencode`, `profile`                          | `MINIMAX_API_KEY`   |
+| Anthropic    | yes           | `profile`, `claude-cli`, `cursor-cli`          | `ANTHROPIC_API_KEY` |
+| Grok         | yes           | `cursor-cli`, `profile`                        | `XAI_API_KEY`       |
 
 ### API backend
 
@@ -494,33 +494,38 @@ consult-llm config set gemini.backend cursor-cli
 
 If your prompts need shell commands in Cursor CLI ask mode, allow them in `~/.cursor/cli-config.json`.
 
-**Claude CLI**: routes Anthropic models through a named CLI profile. Install Claude Code CLI and sign in first, then configure a profile:
+**Profile backend**: routes any model family through a named CLI profile. This is useful when a Claude Code CLI process proxies another provider, for example routing Gemini models through a local Anthropic-compatible proxy:
 
 ```yaml
 cli_profiles:
-  claude:
-    command: claude
+  claude-gemini-proxy:
+    type: claude-cli
+    command: /Users/you/.local/bin/claude
     args:
       - -p
       - --output-format
       - stream-json
-      - --model
-      - claude-opus-4-7
     env:
-      CLAUDE_CONFIG_DIR: /Users/you/.claude-consult
+      ANTHROPIC_BASE_URL: http://localhost:18765
+      ANTHROPIC_AUTH_TOKEN: anything
+      ANTHROPIC_SMALL_FAST_MODEL: gemini-3.1-pro-preview
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1"
+    model_env: ANTHROPIC_MODEL
     interface: stream-json
     prompt: stdin
     headless: true
 
-anthropic:
-  backend: claude-cli
-  cli_profile: claude
+gemini:
+  backend: profile
+  cli_profile: claude-gemini-proxy
 ```
 
-The example passes literal environment values and arguments to the Claude process. Prefer a user or project-local config for profiles with `env` values; committed project config rejects `cli_profiles.*.env` so secrets and machine-local paths do not leak.
+`model_env` sets the named environment variable to the requested model ID before launching the profile command. For Anthropic models, `anthropic.backend: claude-cli` is a compatibility alias for `profile`.
 
-Run `consult-llm doctor` after configuring it. The Anthropic row should show `via claude-cli` and the selected profile command, for example `profile 'claude' command claude (...)`.
+The example passes literal environment values and arguments to the CLI process. Prefer a user or project-local config for profiles with `env` values; committed project config rejects `cli_profiles.*.env` so secrets and machine-local paths do not leak.
+
+Run `consult-llm doctor` after configuring it. The provider row should show `via profile` and the selected profile command, for example `profile 'claude-gemini-proxy' command claude (...)`.
 
 **OpenCode**: routes through `opencode` to Copilot, OpenRouter, or other providers:
 
@@ -537,16 +542,18 @@ consult-llm config set openai.opencode_provider openai
 
 ### CLI backend profiles
 
-Profile-backed backends such as `claude-cli` select a named entry from the top-level `cli_profiles` map. Each profile defines how consult-llm launches the CLI process:
+The `profile` backend selects a named entry from the top-level `cli_profiles` map. Each profile defines how consult-llm launches the CLI process:
 
+- `type`: profile executor type (`claude-cli` is the only supported value today)
 - `command`: executable name or path
 - `args`: literal argv entries before the prompt
 - `env`: literal environment variables passed to the CLI process
+- `model_env`: optional env var name set to the requested model ID at launch time
 - `interface`: `text`, `json`, or `stream-json`
 - `prompt`: `stdin` or `argument`
 - `headless`: whether the profile is suitable for non-interactive runs
 
-Provider blocks reference a profile by name. For example, `anthropic.backend: claude-cli` with `anthropic.cli_profile: claude` uses the `claude` profile shown above.
+Provider blocks reference a profile by name. For example, `gemini.backend: profile` with `gemini.cli_profile: claude-gemini-proxy` uses the profile shown above. For Anthropic, `anthropic.backend: claude-cli` is a compatibility alias for `profile`.
 
 ## Multi-turn conversations
 
@@ -766,24 +773,24 @@ Environment variables override config file values.
 | `XAI_API_KEY`                            | xAI API key for Grok models                                                            |                                                   |                                          |
 | `CONSULT_LLM_DEFAULT_MODEL`              | Model or selector to use for single-response calls when `-m` is omitted                | selector or exact model ID                        | first available                          |
 | `CONSULT_LLM_DEFAULT_MODELS`             | Comma-separated ordered multi-model defaults when `-m` is omitted; duplicates preserved | selectors or exact model IDs                      | empty (falls through to default_model then fallback) |
-| `CONSULT_LLM_GEMINI_BACKEND`             | Backend for Gemini models                                                              | `api` `gemini-cli` `cursor-cli` `opencode`        | `api`                                    |
-| `CONSULT_LLM_OPENAI_BACKEND`             | Backend for OpenAI models                                                              | `api` `codex-cli` `cursor-cli` `opencode`         | `api`                                    |
-| `CONSULT_LLM_DEEPSEEK_BACKEND`           | Backend for DeepSeek models                                                            | `api` `opencode`                                  | `api`                                    |
-| `CONSULT_LLM_MINIMAX_BACKEND`            | Backend for MiniMax models                                                             | `api` `opencode`                                  | `api`                                    |
-| `CONSULT_LLM_ANTHROPIC_BACKEND`          | Backend for Anthropic models                                                           | `api` `claude-cli` `cursor-cli`                   | `api`                                    |
-| `CONSULT_LLM_GROK_BACKEND`               | Backend for Grok models                                                                | `api`                                             | `api`                                    |
+| `CONSULT_LLM_GEMINI_BACKEND`             | Backend for Gemini models                                                              | `api` `gemini-cli` `cursor-cli` `opencode` `profile` | `api`                                    |
+| `CONSULT_LLM_OPENAI_BACKEND`             | Backend for OpenAI models                                                              | `api` `codex-cli` `cursor-cli` `opencode` `profile` | `api`                                    |
+| `CONSULT_LLM_DEEPSEEK_BACKEND`           | Backend for DeepSeek models                                                            | `api` `opencode` `profile`                        | `api`                                    |
+| `CONSULT_LLM_MINIMAX_BACKEND`            | Backend for MiniMax models                                                             | `api` `opencode` `profile`                        | `api`                                    |
+| `CONSULT_LLM_ANTHROPIC_BACKEND`          | Backend for Anthropic models                                                           | `api` `profile` `claude-cli` `cursor-cli`         | `api`                                    |
+| `CONSULT_LLM_GROK_BACKEND`               | Backend for Grok models                                                                | `api` `cursor-cli` `profile`                      | `api`                                    |
 | `CONSULT_LLM_ALLOWED_MODELS`             | Comma-separated allowlist; restricts which models are enabled                          | model IDs                                         | all                                      |
 | `CONSULT_LLM_EXTRA_MODELS`               | Comma-separated extra model IDs to add to the catalog                                  | model IDs                                         |                                          |
 | `CONSULT_LLM_CODEX_REASONING_EFFORT`     | Reasoning effort for Codex CLI backend                                                 | `none` `minimal` `low` `medium` `high` `xhigh`    | `high`                                   |
 | `CONSULT_LLM_CODEX_EXTRA_ARGS`           | Extra CLI args appended to `codex exec` (shell-quoted)                                 | e.g. `--dangerously-bypass-approvals-and-sandbox` |                                          |
 | `CONSULT_LLM_GEMINI_EXTRA_ARGS`          | Extra CLI args appended to `gemini` (shell-quoted)                                     | shell-quoted args                                 |                                          |
 | `CONSULT_LLM_OPENCODE_PROVIDER`          | Default OpenCode provider prefix for all models                                        | provider name                                     | per-model default                        |
-| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`      | CLI profile name when `anthropic.backend` is `claude-cli`                              | profile name                                       |                                          |
-| `CONSULT_LLM_GEMINI_CLI_PROFILE`         | CLI profile name for profile-backed Gemini backends                                    | profile name                                       |                                          |
-| `CONSULT_LLM_OPENAI_CLI_PROFILE`         | CLI profile name for profile-backed OpenAI backends                                    | profile name                                       |                                          |
-| `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`       | CLI profile name for profile-backed DeepSeek backends                                  | profile name                                       |                                          |
-| `CONSULT_LLM_MINIMAX_CLI_PROFILE`        | CLI profile name for profile-backed MiniMax backends                                   | profile name                                       |                                          |
-| `CONSULT_LLM_GROK_CLI_PROFILE`           | CLI profile name for profile-backed Grok backends                                      | profile name                                       |                                          |
+| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`      | CLI profile name when `anthropic.backend` is `profile` or `claude-cli`                 | profile name                                       |                                          |
+| `CONSULT_LLM_GEMINI_CLI_PROFILE`         | CLI profile name when `gemini.backend` is `profile`                                    | profile name                                       |                                          |
+| `CONSULT_LLM_OPENAI_CLI_PROFILE`         | CLI profile name when `openai.backend` is `profile`                                    | profile name                                       |                                          |
+| `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`       | CLI profile name when `deepseek.backend` is `profile`                                  | profile name                                       |                                          |
+| `CONSULT_LLM_MINIMAX_CLI_PROFILE`        | CLI profile name when `minimax.backend` is `profile`                                   | profile name                                       |                                          |
+| `CONSULT_LLM_GROK_CLI_PROFILE`           | CLI profile name when `grok.backend` is `profile`                                      | profile name                                       |                                          |
 | `CONSULT_LLM_OPENCODE_OPENAI_PROVIDER`   | OpenCode provider for OpenAI models                                                    | provider name                                     | `openai`                                 |
 | `CONSULT_LLM_OPENCODE_GEMINI_PROVIDER`   | OpenCode provider for Gemini models                                                    | provider name                                     | `google`                                 |
 | `CONSULT_LLM_OPENCODE_DEEPSEEK_PROVIDER` | OpenCode provider for DeepSeek models                                                  | provider name                                     | `deepseek`                               |
@@ -958,7 +965,7 @@ All workflow skills accept `--<selector>` flags matching the selectors reported 
 - [`review-panel`](skills/review-panel/SKILL.md): standalone multi-model code review of a diff with identical prompts; agent dedupes findings by severity/confidence. Read-only by default; `--fix` opt-in for localized must-fix items
 - [`implement`](skills/implement/SKILL.md): autonomous spec → plan → review → implement → red-team workflow. Evidence-gated reviewers, written feedback ledger, triggered debug loop, opt-in commits. Rigor knob: `--rigor lite|standard|deep`
 - [`phased-implement`](skills/phased-implement/SKILL.md): coordinator that breaks a large task into a DAG of phases, each running `/implement` in its own [workmux](https://github.com/raine/workmux) worktree. Supports sequential, parallel, and mixed dependencies; per-phase merge with `/merge --keep` and ancestry verification; failure halts dependents. Requires `workmux`
-- [`workshop`](skills/workshop/SKILL.md): interactive design session — agent clarifies the idea with the user, fans out to multiple LLMs in parallel for divergent approach generation, user picks one, then co-design with optional multi-LLM critique. Saves a design doc; hand it to `/implement` to build
+- [`workshop`](skills/workshop/SKILL.md): interactive design session - agent clarifies the idea with the user, fans out to multiple LLMs in parallel for divergent approach generation, user picks one, then co-design with optional multi-LLM critique. Saves a design doc; hand it to `/implement` to build
 
 See `skills/*/SKILL.md` for the exact prompts and invocation patterns.
 

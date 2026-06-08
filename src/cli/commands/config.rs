@@ -45,7 +45,7 @@ fn run_set(key: String, value: String, project: bool, local: bool) -> anyhow::Re
         let src = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         let v: Value =
             serde_yaml::from_str(&src).with_context(|| format!("parse {}", path.display()))?;
-        // An empty file deserializes as Null — treat it as an empty mapping
+        // An empty file deserializes as Null, treat it as an empty mapping
         let doc = match v {
             Value::Null => Value::Mapping(serde_yaml::Mapping::new()),
             other => other,
@@ -79,7 +79,7 @@ fn run_set(key: String, value: String, project: bool, local: bool) -> anyhow::Re
     // This catches typos like "gemini.bakcend" before they silently corrupt the file.
     let out = serde_yaml::to_string(&doc)?;
     let cfg = crate::config::file::ConfigFile::parse(&out)
-        .with_context(|| format!("invalid config key {:?} — check spelling", key))?;
+        .with_context(|| format!("invalid config key {:?} - check spelling", key))?;
 
     // Reject API keys in the committed project config.
     if project {
@@ -236,6 +236,12 @@ mod tests {
             &mut doc,
             "cli_profiles.claude.command",
             Value::String("claude".into()),
+        )
+        .unwrap();
+        set_nested_key(
+            &mut doc,
+            "cli_profiles.claude.type",
+            Value::String("claude-cli".into()),
         )
         .unwrap();
         set_nested_key(

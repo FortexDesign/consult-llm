@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use crate::config::types::CliProfileType;
 use crate::config::{Backend, Config};
 use crate::executors::anthropic_api::AnthropicApiExecutor;
 use crate::executors::api::ApiExecutor;
@@ -23,7 +24,7 @@ impl ExecutorProvider {
     pub fn new(config: Arc<Config>) -> Self {
         // Socket read-idle: ureq applies this as a per-read deadline (each
         // blocking read gets a fresh budget), so it's the right knob for
-        // "the connection went silent" — heartbeat bytes count as liveness
+        // "the connection went silent", heartbeat bytes count as liveness
         // and reset the timer naturally. Set per-request in the executors.
         let idle_timeout = config.api_idle_timeout;
 
@@ -32,7 +33,7 @@ impl ExecutorProvider {
             // Bound body upload so a provider that accepts the connection
             // but never reads can't hang `.send()` forever.
             .timeout_send_body(Some(std::time::Duration::from_secs(120)))
-            // Absolute lifetime cap on any single request — backstop for
+            // Absolute lifetime cap on any single request, backstop for
             // pathological cases the per-read socket idle can't catch
             // (server trickling a single byte every <idle interval).
             //
@@ -104,19 +105,15 @@ impl ExecutorProvider {
                 let prefix = cfg.opencode_provider_for(provider).to_string();
                 Arc::new(OpenCodeCliExecutor::new(prefix))
             }
-            Backend::ProfileCli(name) if name == "claude-cli" => {
-                let selected = cfg
-                    .selected_cli_profile_for(provider)
-                    .filter(|profile| profile.backend == *name)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "profile-backed backend '{name}' has no selected CLI profile for {provider:?}"
-                        )
-                    })?;
-                Arc::new(ClaudeCliExecutor::new(selected.clone()))
-            }
-            Backend::ProfileCli(name) => {
-                anyhow::bail!("profile-backed backend '{name}' has no executor")
+            Backend::Profile => {
+                let selected = cfg.selected_cli_profile_for(provider).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "backend 'profile' has no selected CLI profile for {provider:?}"
+                    )
+                })?;
+                match selected.profile.profile_type {
+                    CliProfileType::ClaudeCli => Arc::new(ClaudeCliExecutor::new(selected.clone())),
+                }
             }
         };
 
@@ -129,7 +126,7 @@ impl ExecutorProvider {
 mod tests {
     use super::*;
     use crate::config::parse::parse_config_with_cli_profiles;
-    use crate::config::types::{CliProfile, CliProfileInterface, CliPromptMode};
+    use crate::config::types::{CliProfile, CliProfileInterface, CliProfileType, CliPromptMode};
     use std::collections::BTreeMap;
 
     fn test_cli_profiles() -> BTreeMap<String, CliProfile> {
@@ -137,12 +134,14 @@ mod tests {
         map.insert(
             "claude".to_string(),
             CliProfile {
+                profile_type: CliProfileType::ClaudeCli,
                 command: "sh".to_string(),
                 args: vec!["-c".to_string(), "echo ok".to_string()],
                 env: BTreeMap::new(),
                 interface: CliProfileInterface::Text,
                 prompt: CliPromptMode::Stdin,
                 headless: true,
+                model_env: None,
             },
         );
         map
@@ -167,6 +166,20 @@ mod tests {
         let executor = provider
             .get_executor("claude-opus-4-7")
             .expect("should create claude cli executor");
+        assert_eq!(executor.backend_name(), "claude_cli");
+    }
+
+    #[test]
+    fn test_gemini_profile_executor_is_created() {
+        let env = env_from(&[
+            ("CONSULT_LLM_GEMINI_BACKEND", "profile"),
+            ("CONSULT_LLM_GEMINI_CLI_PROFILE", "claude"),
+        ]);
+        let (config, _) = parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        let provider = ExecutorProvider::new(Arc::new(config));
+        let executor = provider
+            .get_executor("gemini-3.1-pro-preview")
+            .expect("should create profile executor for gemini model");
         assert_eq!(executor.backend_name(), "claude_cli");
     }
 }

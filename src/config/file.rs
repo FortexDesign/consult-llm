@@ -165,6 +165,10 @@ where
         .map_err(|err| E::custom(format!("invalid value for `{field}`: {err}")))
 }
 
+fn is_profile_backend(provider: Provider, backend: &str) -> bool {
+    backend == "profile" || (provider == Provider::Anthropic && backend == "claude-cli")
+}
+
 fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<(), String> {
     let spec = provider.spec();
     if block.opencode_provider.is_some() && !spec.allowed_backends.contains(&"opencode") {
@@ -202,17 +206,16 @@ fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<
             ));
         }
         if let Some(backend) = block.backend.as_deref()
-            && !spec.profile_backed_backends.contains(&backend)
+            && !is_profile_backend(provider, backend)
         {
-            let allowed = spec.profile_backed_backends.join(" | ");
-            let allowed_msg = if allowed.is_empty() {
-                "none".to_string()
-            } else {
-                format!("expected one of: {allowed}")
-            };
+            let mut allowed = vec!["profile"];
+            if provider == Provider::Anthropic {
+                allowed.push("claude-cli");
+            }
             return Err(format!(
-                "unsupported provider field `cli_profile` for provider `{}` with backend `{backend}`. {allowed_msg}",
-                spec.id
+                "unsupported provider field `cli_profile` for provider `{}` with backend `{backend}`. expected one of: {}",
+                spec.id,
+                allowed.join(" | ")
             ));
         }
     }
@@ -242,6 +245,14 @@ fn validate_cli_profiles(profiles: &BTreeMap<String, CliProfile>) -> Result<(), 
                 ));
             }
             validate_no_nul(&format!("cli_profiles.{name}.env.{key}"), value)?;
+        }
+        if let Some(model_env) = &profile.model_env {
+            if model_env.trim().is_empty() || model_env.contains('=') {
+                return Err(format!(
+                    "invalid key `cli_profiles.{name}.model_env`: env keys must be non-empty and cannot contain '='"
+                ));
+            }
+            validate_no_nul(&format!("cli_profiles.{name}.model_env"), model_env)?;
         }
     }
     Ok(())
@@ -309,7 +320,7 @@ impl ConfigFile {
             );
         }
 
-        // Iterate the registry — every provider's YAML block routes through here, so
+        // Iterate the registry, every provider's YAML block routes through here, so
         // adding a provider in `src/models.rs` is enough; this loop never grows.
         for spec in PROVIDERS {
             let Some(block) = self.providers.get(&spec.provider) else {
@@ -649,7 +660,7 @@ opencode:
                     ..Default::default()
                 },
             )]);
-            // Not an error even with Forbid — blank key is not a secret
+            // Not an error even with Forbid, blank key is not a secret
             let m = cfg.to_env_map(ApiKeyPolicy::Forbid).unwrap();
             assert!(
                 !m.contains_key("OPENAI_API_KEY"),

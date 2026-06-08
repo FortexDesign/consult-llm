@@ -61,15 +61,15 @@ pub struct OpenAiCompatRuntime {
 /// HTTP wire-format family used when calling the provider's native API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiProtocol {
-    /// OpenAI-compatible `/chat/completions` — used by OpenAI, Gemini (OpenAI-compat
+    /// OpenAI-compatible `/chat/completions`, used by OpenAI, Gemini (OpenAI-compat
     /// endpoint), DeepSeek, MiniMax.
     OpenAiCompat(OpenAiCompatRuntime),
-    /// Anthropic `/v1/messages` — `x-api-key` auth, top-level `system`, content-block
+    /// Anthropic `/v1/messages`, `x-api-key` auth, top-level `system`, content-block
     /// responses, distinct usage shape.
     AnthropicMessages,
 }
 
-/// Static metadata for a provider — the single place to define provider-specific constants.
+/// Static metadata for a provider, the single place to define provider-specific constants.
 /// Adding a new provider means: add a variant to `Provider`, add a `ProviderSpec` to `PROVIDERS`,
 /// and add the variant to `ALL_PROVIDERS`. Nothing else outside `models.rs` needs to change
 /// (unless the provider introduces a brand-new `ApiProtocol`, which adds one match arm in `llm.rs`).
@@ -82,7 +82,7 @@ pub struct ProviderSpec {
     pub model_prefixes: &'static [&'static str],
     /// API base URL override (None = default OpenAI-compatible URL).
     pub api_base_url: Option<&'static str>,
-    /// API wire format — picks which executor to instantiate in `Backend::Api` mode.
+    /// API wire format, picks which executor to instantiate in `Backend::Api` mode.
     pub api_protocol: ApiProtocol,
     /// Built-in model IDs shipped with this provider.
     pub builtin_models: &'static [&'static str],
@@ -115,8 +115,6 @@ pub struct ProviderSpec {
     pub extra_args_env: Option<&'static str>,
     /// Env var key for the CLI profile name (e.g. "CONSULT_LLM_ANTHROPIC_CLI_PROFILE").
     pub cli_profile_env: &'static str,
-    /// Backend values that are profile-backed rather than built-in (e.g. &["claude-cli"]).
-    pub profile_backed_backends: &'static [&'static str],
 }
 
 /// All known providers in deterministic order. Derived integrity tests verify this
@@ -161,13 +159,12 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: Some("GEMINI_BACKEND"),
         legacy_mode_env: Some("GEMINI_MODE"),
         cli_backend_value: Some("gemini-cli"),
-        allowed_backends: &["api", "gemini-cli", "cursor-cli", "opencode"],
+        allowed_backends: &["api", "gemini-cli", "cursor-cli", "opencode", "profile"],
         opencode_env: "CONSULT_LLM_OPENCODE_GEMINI_PROVIDER",
         default_opencode_provider: "google",
         reasoning_effort_env: None,
         extra_args_env: Some("CONSULT_LLM_GEMINI_EXTRA_ARGS"),
         cli_profile_env: "CONSULT_LLM_GEMINI_CLI_PROFILE",
-        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::DeepSeek,
@@ -186,13 +183,12 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api", "opencode"],
+        allowed_backends: &["api", "opencode", "profile"],
         opencode_env: "CONSULT_LLM_OPENCODE_DEEPSEEK_PROVIDER",
         default_opencode_provider: "deepseek",
         reasoning_effort_env: None,
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_DEEPSEEK_CLI_PROFILE",
-        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::OpenAI,
@@ -223,13 +219,12 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: Some("OPENAI_BACKEND"),
         legacy_mode_env: Some("OPENAI_MODE"),
         cli_backend_value: Some("codex-cli"),
-        allowed_backends: &["api", "codex-cli", "cursor-cli", "opencode"],
+        allowed_backends: &["api", "codex-cli", "cursor-cli", "opencode", "profile"],
         opencode_env: "CONSULT_LLM_OPENCODE_OPENAI_PROVIDER",
         default_opencode_provider: "openai",
         reasoning_effort_env: Some("CONSULT_LLM_CODEX_REASONING_EFFORT"),
         extra_args_env: Some("CONSULT_LLM_CODEX_EXTRA_ARGS"),
         cli_profile_env: "CONSULT_LLM_OPENAI_CLI_PROFILE",
-        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::MiniMax,
@@ -251,13 +246,12 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api", "opencode"],
+        allowed_backends: &["api", "opencode", "profile"],
         opencode_env: "CONSULT_LLM_OPENCODE_MINIMAX_PROVIDER",
         default_opencode_provider: "minimax",
         reasoning_effort_env: None,
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_MINIMAX_CLI_PROFILE",
-        profile_backed_backends: &[],
     },
     ProviderSpec {
         provider: Provider::Anthropic,
@@ -273,13 +267,12 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api", "cursor-cli", "claude-cli"],
+        allowed_backends: &["api", "cursor-cli", "profile", "claude-cli"],
         opencode_env: "CONSULT_LLM_OPENCODE_ANTHROPIC_PROVIDER",
         default_opencode_provider: "anthropic",
         reasoning_effort_env: None,
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_ANTHROPIC_CLI_PROFILE",
-        profile_backed_backends: &["claude-cli"],
     },
     ProviderSpec {
         provider: Provider::Grok,
@@ -298,13 +291,12 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         legacy_backend_env: None,
         legacy_mode_env: None,
         cli_backend_value: None,
-        allowed_backends: &["api", "cursor-cli"],
+        allowed_backends: &["api", "cursor-cli", "profile"],
         opencode_env: "CONSULT_LLM_OPENCODE_GROK_PROVIDER",
         default_opencode_provider: "xai",
         reasoning_effort_env: None,
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_GROK_CLI_PROFILE",
-        profile_backed_backends: &[],
     },
 ];
 
@@ -512,23 +504,27 @@ mod tests {
                 assert!(matches!(spec.provider, Provider::Gemini | Provider::OpenAI));
             }
             assert!(!spec.cli_profile_env.is_empty());
-            for backend in spec.profile_backed_backends {
+            assert!(
+                spec.allowed_backends.contains(&"profile"),
+                "provider {:?} must allow profile backend",
+                spec.id
+            );
+            if spec.provider == Provider::Anthropic {
                 assert!(
-                    spec.allowed_backends.contains(backend),
-                    "profile-backed backend {backend:?} not in allowed_backends for {:?}",
-                    spec.id
+                    spec.allowed_backends.contains(&"claude-cli"),
+                    "anthropic must allow claude-cli compatibility alias"
                 );
+            } else {
                 assert!(
-                    Backend::from_builtin_str(backend).is_none(),
-                    "profile-backed backend {backend:?} for {:?} is a built-in backend",
+                    !spec.allowed_backends.contains(&"claude-cli"),
+                    "claude-cli alias must be anthropic-only for {:?}",
                     spec.id
                 );
             }
             for backend in spec.allowed_backends {
                 assert!(
-                    Backend::from_builtin_str(backend).is_some()
-                        || spec.profile_backed_backends.contains(backend),
-                    "allowed backend {backend:?} for {:?} must be built-in or profile-backed",
+                    Backend::from_builtin_str(backend).is_some(),
+                    "allowed backend {backend:?} for {:?} must be a known built-in backend",
                     spec.id
                 );
             }

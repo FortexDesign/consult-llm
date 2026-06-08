@@ -22,9 +22,6 @@ fn parse_backend(raw: &str, spec: &ProviderSpec) -> Result<Backend, ConfigError>
                 .collect(),
         });
     }
-    if spec.profile_backed_backends.contains(&raw) {
-        return Ok(Backend::ProfileCli(raw.to_string()));
-    }
     Backend::from_builtin_str(raw).ok_or_else(|| ConfigError::InvalidBackend {
         env_var: spec.backend_env.to_string(),
         raw: raw.to_string(),
@@ -83,8 +80,8 @@ fn parse_provider_config(
         .or_else(|| opencode_global.clone())
         .unwrap_or_else(|| spec.default_opencode_provider.to_string());
 
-    // 5. Selected CLI profile (only for profile-backed backends)
-    let selected_cli_profile = if spec.profile_backed_backends.contains(&backend.as_str()) {
+    // 5. Selected CLI profile (only for profile backend)
+    let selected_cli_profile = if backend == Backend::Profile {
         let allowed: Vec<String> = cli_profiles.keys().cloned().collect();
         let key = spec.cli_profile_env.to_string();
         let Some(name) = env(spec.cli_profile_env) else {
@@ -102,7 +99,6 @@ fn parse_provider_config(
             });
         };
         Some(SelectedCliProfile {
-            backend: backend.as_str().to_string(),
             name,
             profile: profile.clone(),
         })
@@ -299,27 +295,34 @@ mod tests {
             Backend::GeminiCli,
             Backend::CursorCli,
             Backend::OpenCodeCli,
+            Backend::Profile,
         ];
         for b in &backends {
             assert_eq!(Backend::from_builtin_str(b.as_str()), Some(b.clone()));
         }
+        assert_eq!(
+            Backend::from_builtin_str("claude-cli"),
+            Some(Backend::Profile)
+        );
     }
 
     // --- Profile-backed backend tests ---
 
-    use super::super::super::types::{CliProfileInterface, CliPromptMode};
+    use super::super::super::types::{CliProfileInterface, CliProfileType, CliPromptMode};
 
     fn test_cli_profiles() -> BTreeMap<String, CliProfile> {
         let mut map = BTreeMap::new();
         map.insert(
             "claude".to_string(),
             CliProfile {
+                profile_type: CliProfileType::ClaudeCli,
                 command: "claude".to_string(),
                 args: vec!["-p".to_string()],
                 env: BTreeMap::new(),
                 interface: CliProfileInterface::StreamJson,
                 prompt: CliPromptMode::Stdin,
                 headless: true,
+                model_env: None,
             },
         );
         map
@@ -328,7 +331,7 @@ mod tests {
     #[test]
     fn test_profile_backed_backend_exposes_selected_profile() {
         // Include OPENAI_API_KEY so there is at least one enabled model;
-        // profile-backed backends do not enable models in this phase.
+        // profile backends do not enable models in this phase.
         let env = env_from(&[
             ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
             ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
@@ -339,9 +342,23 @@ mod tests {
         let selected = config
             .selected_cli_profile_for(Provider::Anthropic)
             .unwrap();
-        assert_eq!(selected.backend, "claude-cli");
+        assert_eq!(config.backend_for(Provider::Anthropic), &Backend::Profile);
         assert_eq!(selected.name, "claude");
         assert_eq!(selected.profile.command, "claude");
+    }
+
+    #[test]
+    fn test_gemini_profile_backend_exposes_selected_profile() {
+        let env = env_from(&[
+            ("CONSULT_LLM_GEMINI_BACKEND", "profile"),
+            ("CONSULT_LLM_GEMINI_CLI_PROFILE", "claude"),
+            ("OPENAI_API_KEY", "sk-key"),
+        ]);
+        let (config, _) =
+            super::super::parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        let selected = config.selected_cli_profile_for(Provider::Gemini).unwrap();
+        assert_eq!(config.backend_for(Provider::Gemini), &Backend::Profile);
+        assert_eq!(selected.name, "claude");
     }
 
     #[test]
@@ -359,7 +376,7 @@ mod tests {
                 ref backend,
                 ref allowed,
             } if key == "CONSULT_LLM_ANTHROPIC_CLI_PROFILE"
-                && backend == "claude-cli"
+                && backend == "profile"
                 && allowed.is_empty()
         ));
     }

@@ -13,7 +13,7 @@ pub enum Backend {
     GeminiCli,
     CursorCli,
     OpenCodeCli,
-    ProfileCli(String),
+    Profile,
 }
 
 impl Backend {
@@ -24,6 +24,7 @@ impl Backend {
             "gemini-cli" => Some(Backend::GeminiCli),
             "cursor-cli" => Some(Backend::CursorCli),
             "opencode" => Some(Backend::OpenCodeCli),
+            "profile" | "claude-cli" => Some(Backend::Profile),
             _ => None,
         }
     }
@@ -35,7 +36,7 @@ impl Backend {
             Backend::GeminiCli => "gemini-cli",
             Backend::CursorCli => "cursor-cli",
             Backend::OpenCodeCli => "opencode",
-            Backend::ProfileCli(raw) => raw.as_str(),
+            Backend::Profile => "profile",
         }
     }
 }
@@ -57,11 +58,10 @@ impl ProviderRuntimeConfig {
     pub fn has_executable_backend(&self) -> bool {
         match &self.backend {
             Backend::Api => self.api_key.is_some(),
-            Backend::ProfileCli(name) => {
-                self.selected_cli_profile.as_ref().is_some_and(|selected| {
-                    selected.backend == *name && name == "claude-cli" && selected.profile.headless
-                })
-            }
+            Backend::Profile => self
+                .selected_cli_profile
+                .as_ref()
+                .is_some_and(|selected| selected.profile.headless),
             _ => true,
         }
     }
@@ -82,9 +82,23 @@ pub enum CliPromptMode {
     Argument,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CliProfileType {
+    ClaudeCli,
+}
+
+impl Default for CliProfileType {
+    fn default() -> Self {
+        Self::ClaudeCli
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CliProfile {
+    #[serde(rename = "type", default)]
+    pub profile_type: CliProfileType,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
@@ -94,11 +108,11 @@ pub struct CliProfile {
     pub prompt: CliPromptMode,
     #[serde(default)]
     pub headless: bool,
+    pub model_env: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectedCliProfile {
-    pub backend: String,
     pub name: String,
     pub profile: CliProfile,
 }

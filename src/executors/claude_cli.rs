@@ -36,7 +36,7 @@ impl LlmExecutor for ClaudeCliExecutor {
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
         let ExecutionRequest {
             prompt,
-            model: _,
+            model,
             system_prompt,
             file_paths: _,
             thread_id,
@@ -58,6 +58,10 @@ impl LlmExecutor for ClaudeCliExecutor {
 
         let profile = &self.profile.profile;
         let mut args = profile.args.clone();
+        let mut env = profile.env.clone();
+        if let Some(model_env) = &profile.model_env {
+            env.insert(model_env.clone(), model);
+        }
 
         let stdin_prompt = match profile.prompt {
             CliPromptMode::Stdin => Some(full_prompt),
@@ -72,7 +76,7 @@ impl LlmExecutor for ClaudeCliExecutor {
         run_cli_executor_with_env(
             &profile.command,
             &args,
-            Some(&profile.env),
+            Some(&env),
             stdin_prompt.as_deref(),
             &prompt,
             &system_prompt,
@@ -511,16 +515,33 @@ mod tests {
     }
 
     fn make_stdin_profile(command: &str, args: Vec<String>) -> SelectedCliProfile {
+        make_profile(
+            command,
+            args,
+            std::collections::BTreeMap::new(),
+            CliPromptMode::Stdin,
+            None,
+        )
+    }
+
+    fn make_profile(
+        command: &str,
+        args: Vec<String>,
+        env: std::collections::BTreeMap<String, String>,
+        prompt: CliPromptMode,
+        model_env: Option<String>,
+    ) -> SelectedCliProfile {
         SelectedCliProfile {
-            backend: "claude-cli".to_string(),
             name: "test".to_string(),
             profile: crate::config::types::CliProfile {
+                profile_type: crate::config::types::CliProfileType::ClaudeCli,
                 command: command.to_string(),
                 args,
-                env: std::collections::BTreeMap::new(),
+                env,
                 interface: CliProfileInterface::Text,
-                prompt: CliPromptMode::Stdin,
+                prompt,
                 headless: true,
+                model_env,
             },
         }
     }
@@ -540,22 +561,17 @@ mod tests {
 
     #[test]
     fn executor_delivers_prompt_via_argument() {
-        let profile = SelectedCliProfile {
-            backend: "claude-cli".to_string(),
-            name: "test".to_string(),
-            profile: crate::config::types::CliProfile {
-                command: "sh".to_string(),
-                args: vec![
-                    "-c".to_string(),
-                    "printf '%s\\n' \"$1\"".to_string(),
-                    "sh".to_string(),
-                ],
-                env: std::collections::BTreeMap::new(),
-                interface: CliProfileInterface::Text,
-                prompt: CliPromptMode::Argument,
-                headless: true,
-            },
-        };
+        let profile = make_profile(
+            "sh",
+            vec![
+                "-c".to_string(),
+                "printf '%s\\n' \"$1\"".to_string(),
+                "sh".to_string(),
+            ],
+            std::collections::BTreeMap::new(),
+            CliPromptMode::Argument,
+            None,
+        );
         let executor = ClaudeCliExecutor::new(profile);
         let result = executor
             .execute(request("hello as arg", "system: test"))
@@ -570,21 +586,16 @@ mod tests {
     fn executor_passes_configured_args_and_env() {
         let mut env = std::collections::BTreeMap::new();
         env.insert("CLAUDE_CLI_TEST_VAR".to_string(), "env-value".to_string());
-        let profile = SelectedCliProfile {
-            backend: "claude-cli".to_string(),
-            name: "test".to_string(),
-            profile: crate::config::types::CliProfile {
-                command: "sh".to_string(),
-                args: vec![
-                    "-c".to_string(),
-                    "printf '%s\\n' \"$CLAUDE_CLI_TEST_VAR\"".to_string(),
-                ],
-                env,
-                interface: CliProfileInterface::Text,
-                prompt: CliPromptMode::Stdin,
-                headless: true,
-            },
-        };
+        let profile = make_profile(
+            "sh",
+            vec![
+                "-c".to_string(),
+                "printf '%s\\n' \"$CLAUDE_CLI_TEST_VAR\"".to_string(),
+            ],
+            env,
+            CliPromptMode::Stdin,
+            None,
+        );
         let executor = ClaudeCliExecutor::new(profile);
         let result = executor
             .execute(request("", "system: test"))
@@ -612,18 +623,8 @@ mod tests {
 
     #[test]
     fn executor_rejects_headless_false() {
-        let profile = SelectedCliProfile {
-            backend: "claude-cli".to_string(),
-            name: "test".to_string(),
-            profile: crate::config::types::CliProfile {
-                command: "sh".to_string(),
-                args: vec!["-c".to_string(), "echo ok".to_string()],
-                env: std::collections::BTreeMap::new(),
-                interface: CliProfileInterface::Text,
-                prompt: CliPromptMode::Stdin,
-                headless: false,
-            },
-        };
+        let mut profile = make_stdin_profile("sh", vec!["-c".to_string(), "echo ok".to_string()]);
+        profile.profile.headless = false;
         let executor = ClaudeCliExecutor::new(profile);
         let err = executor
             .execute(request("prompt", "system: test"))
@@ -649,5 +650,49 @@ mod tests {
             msg.contains("thread resume"),
             "should mention thread resume not supported: {msg}"
         );
+    }
+
+    #[test]
+    fn executor_injects_model_env() {
+        let profile = make_profile(
+            "sh",
+            vec![
+                "-c".to_string(),
+                "printf '%s\\n' \"$ANTHROPIC_MODEL\"".to_string(),
+            ],
+            std::collections::BTreeMap::new(),
+            CliPromptMode::Stdin,
+            Some("ANTHROPIC_MODEL".to_string()),
+        );
+        let executor = ClaudeCliExecutor::new(profile);
+        let req = ExecutionRequest {
+            model: "gemini-3.1-pro-preview".to_string(),
+            ..request("", "system: test")
+        };
+        let result = executor.execute(req).expect("execute");
+        assert_eq!(result.response.trim(), "gemini-3.1-pro-preview");
+    }
+
+    #[test]
+    fn executor_model_env_overrides_profile_env() {
+        let mut env = std::collections::BTreeMap::new();
+        env.insert("ANTHROPIC_MODEL".to_string(), "stale-model".to_string());
+        let profile = make_profile(
+            "sh",
+            vec![
+                "-c".to_string(),
+                "printf '%s\\n' \"$ANTHROPIC_MODEL\"".to_string(),
+            ],
+            env,
+            CliPromptMode::Stdin,
+            Some("ANTHROPIC_MODEL".to_string()),
+        );
+        let executor = ClaudeCliExecutor::new(profile);
+        let req = ExecutionRequest {
+            model: "gemini-3.1-pro-preview".to_string(),
+            ..request("", "system: test")
+        };
+        let result = executor.execute(req).expect("execute");
+        assert_eq!(result.response.trim(), "gemini-3.1-pro-preview");
     }
 }

@@ -170,13 +170,18 @@ fn profile_command_dependency(command: &str) -> (bool, String) {
     }
 }
 
+fn is_profile_backend(spec: &crate::models::ProviderSpec, backend: &str) -> bool {
+    backend == "profile"
+        || (spec.provider == crate::models::Provider::Anthropic && backend == "claude-cli")
+}
+
 fn profile_backend_dependency(
     spec: &crate::models::ProviderSpec,
     backend: &str,
     profile_name: Option<&str>,
     cli_profiles: &BTreeMap<String, CliProfile>,
 ) -> Option<(bool, String)> {
-    if !spec.profile_backed_backends.contains(&backend) {
+    if !is_profile_backend(spec, backend) {
         return None;
     }
     let Some(profile_name) = profile_name else {
@@ -539,14 +544,14 @@ pub fn run(verbose: bool) -> anyhow::Result<()> {
                 print_row_aligned(c, Status::Skip, row.id, id_w, Some(&row.detail));
             }
             ProvStatus::Ok => {
-                let detail = format!("{} via {} — {}", row.model, row.backend, row.detail);
+                let detail = format!("{} via {} - {}", row.model, row.backend, row.detail);
                 print_row_aligned(c, Status::Ok, row.id, id_w, Some(&detail));
             }
             ProvStatus::Err => {
                 let detail = if row.model.is_empty() && row.backend.is_empty() {
                     row.detail.clone()
                 } else {
-                    format!("{} via {} — {}", row.model, row.backend, row.detail)
+                    format!("{} via {} - {}", row.model, row.backend, row.detail)
                 };
                 print_row_aligned(c, Status::Fail, row.id, id_w, Some(&detail));
             }
@@ -690,22 +695,24 @@ pub fn run(verbose: bool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::{CliProfileInterface, CliPromptMode};
+    use crate::config::types::{CliProfileInterface, CliProfileType, CliPromptMode};
     use crate::models::Provider;
 
     fn cli_profile(command: String) -> CliProfile {
         CliProfile {
+            profile_type: CliProfileType::ClaudeCli,
             command,
             args: vec!["-p".to_string()],
             env: BTreeMap::new(),
             interface: CliProfileInterface::StreamJson,
             prompt: CliPromptMode::Stdin,
             headless: true,
+            model_env: None,
         }
     }
 
     #[test]
-    fn profile_backend_dependency_reports_selected_profile_command() {
+    fn profile_backend_dependency_reports_selected_profile_command_for_claude_cli_alias() {
         let mut profiles = BTreeMap::new();
         profiles.insert(
             "claude".to_string(),
@@ -715,6 +722,26 @@ mod tests {
         let (ok, detail) = profile_backend_dependency(
             Provider::Anthropic.spec(),
             "claude-cli",
+            Some("claude"),
+            &profiles,
+        )
+        .unwrap();
+
+        assert!(ok);
+        assert!(detail.contains("profile 'claude' command"));
+    }
+
+    #[test]
+    fn profile_backend_dependency_reports_selected_profile_command_for_profile_backend() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "claude".to_string(),
+            cli_profile(std::env::current_exe().unwrap().display().to_string()),
+        );
+
+        let (ok, detail) = profile_backend_dependency(
+            Provider::Gemini.spec(),
+            "profile",
             Some("claude"),
             &profiles,
         )
