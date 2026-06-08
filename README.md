@@ -71,7 +71,7 @@ For the more detailed flow, [continue below](#how-it-really-works).
 
 - **Get a second opinion from another model** from your agent with relevant file context (`/consult`)
 - **Have models debate the best approach** and synthesize a consensus (`/debate`)
-- **Use existing subscriptions** via CLI backends without API keys ([Gemini CLI](#gemini-cli), [Codex CLI](#codex-cli), [Cursor CLI](#cursor-cli), [OpenCode](#opencode))
+- **Use existing subscriptions** via CLI backends without API keys ([Gemini CLI](#gemini-cli), [Codex CLI](#codex-cli), [Cursor CLI](#cursor-cli), [Claude CLI](#claude-cli), [OpenCode](#opencode))
 - **Continue conversations across requests** with `thread_id`
 - **Copy prompts to clipboard** for browser-based LLMs (`--web`)
 - **[Monitor](#monitor) active and past runs** in a real-time TUI
@@ -433,7 +433,7 @@ A **backend** is how `consult-llm` reaches that model family:
 | OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`          | `OPENAI_API_KEY`    |
 | DeepSeek     | yes           | `opencode`                                     | `DEEPSEEK_API_KEY`  |
 | MiniMax      | yes           | `opencode`                                     | `MINIMAX_API_KEY`   |
-| Anthropic    | yes           | `claude-cli` (config only), `cursor-cli`       | `ANTHROPIC_API_KEY` |
+| Anthropic    | yes           | `claude-cli`, `cursor-cli`                     | `ANTHROPIC_API_KEY` |
 | Grok         | yes           | none                                           | `XAI_API_KEY`       |
 
 ### API backend
@@ -494,6 +494,34 @@ consult-llm config set gemini.backend cursor-cli
 
 If your prompts need shell commands in Cursor CLI ask mode, allow them in `~/.cursor/cli-config.json`.
 
+**Claude CLI**: routes Anthropic models through a named CLI profile. Install Claude Code CLI and sign in first, then configure a profile:
+
+```yaml
+cli_profiles:
+  claude:
+    command: claude
+    args:
+      - -p
+      - --output-format
+      - stream-json
+      - --model
+      - claude-opus-4-7
+    env:
+      CLAUDE_CONFIG_DIR: /Users/you/.claude-consult
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    interface: stream-json
+    prompt: stdin
+    headless: true
+
+anthropic:
+  backend: claude-cli
+  cli_profile: claude
+```
+
+The example passes literal environment values and arguments to the Claude process. Prefer a user or project-local config for profiles with `env` values; committed project config rejects `cli_profiles.*.env` so secrets and machine-local paths do not leak.
+
+Run `consult-llm doctor` after configuring it. The Anthropic row should show `via claude-cli` and the selected profile command, for example `profile 'claude' command claude (...)`.
+
 **OpenCode**: routes through `opencode` to Copilot, OpenRouter, or other providers:
 
 ```bash
@@ -506,6 +534,19 @@ consult-llm config set minimax.backend opencode
 consult-llm config set opencode.default_provider copilot
 consult-llm config set openai.opencode_provider openai
 ```
+
+### CLI backend profiles
+
+Profile-backed backends such as `claude-cli` select a named entry from the top-level `cli_profiles` map. Each profile defines how consult-llm launches the CLI process:
+
+- `command`: executable name or path
+- `args`: literal argv entries before the prompt
+- `env`: literal environment variables passed to the CLI process
+- `interface`: `text`, `json`, or `stream-json`
+- `prompt`: `stdin` or `argument`
+- `headless`: whether the profile is suitable for non-interactive runs
+
+Provider blocks reference a profile by name. For example, `anthropic.backend: claude-cli` with `anthropic.cli_profile: claude` uses the `claude` profile shown above.
 
 ## Multi-turn conversations
 
@@ -539,9 +580,7 @@ the conversation with full context from prior turns.
   use write-through caching for the payment endpoints.
 ```
 
-This works with all CLI backends (Gemini CLI, Codex CLI, Cursor CLI). See the
-[debate skills](#skills) for multi-LLM workflows that use thread IDs to
-maintain context across debate rounds.
+This works with Gemini CLI, Codex CLI, Cursor CLI, and OpenCode. Claude CLI profiles currently do not support thread resume. See the [debate skills](#skills) for multi-LLM workflows that use thread IDs to maintain context across debate rounds.
 
 ### Config files
 
@@ -731,7 +770,7 @@ Environment variables override config file values.
 | `CONSULT_LLM_OPENAI_BACKEND`             | Backend for OpenAI models                                                              | `api` `codex-cli` `cursor-cli` `opencode`         | `api`                                    |
 | `CONSULT_LLM_DEEPSEEK_BACKEND`           | Backend for DeepSeek models                                                            | `api` `opencode`                                  | `api`                                    |
 | `CONSULT_LLM_MINIMAX_BACKEND`            | Backend for MiniMax models                                                             | `api` `opencode`                                  | `api`                                    |
-| `CONSULT_LLM_ANTHROPIC_BACKEND`          | Backend for Anthropic models                                                           | `api`                                             | `api`                                    |
+| `CONSULT_LLM_ANTHROPIC_BACKEND`          | Backend for Anthropic models                                                           | `api` `claude-cli` `cursor-cli`                   | `api`                                    |
 | `CONSULT_LLM_GROK_BACKEND`               | Backend for Grok models                                                                | `api`                                             | `api`                                    |
 | `CONSULT_LLM_ALLOWED_MODELS`             | Comma-separated allowlist; restricts which models are enabled                          | model IDs                                         | all                                      |
 | `CONSULT_LLM_EXTRA_MODELS`               | Comma-separated extra model IDs to add to the catalog                                  | model IDs                                         |                                          |
@@ -739,7 +778,7 @@ Environment variables override config file values.
 | `CONSULT_LLM_CODEX_EXTRA_ARGS`           | Extra CLI args appended to `codex exec` (shell-quoted)                                 | e.g. `--dangerously-bypass-approvals-and-sandbox` |                                          |
 | `CONSULT_LLM_GEMINI_EXTRA_ARGS`          | Extra CLI args appended to `gemini` (shell-quoted)                                     | shell-quoted args                                 |                                          |
 | `CONSULT_LLM_OPENCODE_PROVIDER`          | Default OpenCode provider prefix for all models                                        | provider name                                     | per-model default                        |
-| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`      | CLI profile name when `anthropic.backend` is `claude-cli` (config only)                | profile name                                       |                                          |
+| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`      | CLI profile name when `anthropic.backend` is `claude-cli`                              | profile name                                       |                                          |
 | `CONSULT_LLM_GEMINI_CLI_PROFILE`         | CLI profile name for profile-backed Gemini backends                                    | profile name                                       |                                          |
 | `CONSULT_LLM_OPENAI_CLI_PROFILE`         | CLI profile name for profile-backed OpenAI backends                                    | profile name                                       |                                          |
 | `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`       | CLI profile name for profile-backed DeepSeek backends                                  | profile name                                       |                                          |

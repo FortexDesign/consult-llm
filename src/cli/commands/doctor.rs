@@ -1,6 +1,9 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+
+use crate::config::types::CliProfile;
 
 use consult_llm_core::monitoring::{active_dir, runs_dir, sessions_dir};
 
@@ -150,6 +153,52 @@ fn backend_binary(backend: &str) -> Option<&'static str> {
     }
 }
 
+fn profile_command_dependency(command: &str) -> (bool, String) {
+    let path_like = command.contains(std::path::MAIN_SEPARATOR);
+    if path_like {
+        let path = Path::new(command);
+        if path.is_file() {
+            (true, format!("{command} (profile command)"))
+        } else {
+            (false, format!("{command} not found"))
+        }
+    } else {
+        match which(command) {
+            Some(path) => (true, format!("{command} ({})", path.display())),
+            None => (false, format!("{command} not found on PATH")),
+        }
+    }
+}
+
+fn profile_backend_dependency(
+    spec: &crate::models::ProviderSpec,
+    backend: &str,
+    profile_name: Option<&str>,
+    cli_profiles: &BTreeMap<String, CliProfile>,
+) -> Option<(bool, String)> {
+    if !spec.profile_backed_backends.contains(&backend) {
+        return None;
+    }
+    let Some(profile_name) = profile_name else {
+        let allowed = cli_profiles.keys().cloned().collect::<Vec<_>>().join(", ");
+        let suffix = if allowed.is_empty() {
+            "no cli_profiles configured".to_string()
+        } else {
+            format!("available profiles: {allowed}")
+        };
+        return Some((false, format!("{} unset; {suffix}", spec.cli_profile_env)));
+    };
+    let Some(profile) = cli_profiles.get(profile_name) else {
+        let allowed = cli_profiles.keys().cloned().collect::<Vec<_>>().join(", ");
+        return Some((
+            false,
+            format!("profile '{profile_name}' not found; available profiles: {allowed}"),
+        ));
+    };
+    let (ok, dep) = profile_command_dependency(&profile.command);
+    Some((ok, format!("profile '{profile_name}' command {dep}")))
+}
+
 // ---- config key helpers -----------------------------------------------------
 
 fn config_keys() -> Vec<&'static str> {
@@ -163,6 +212,7 @@ fn config_keys() -> Vec<&'static str> {
     ];
     for spec in PROVIDERS {
         keys.push(spec.backend_env);
+        keys.push(spec.cli_profile_env);
         keys.push(spec.opencode_env);
         if let Some(env) = spec.reasoning_effort_env {
             keys.push(env);
@@ -188,6 +238,9 @@ fn semantic_name(env_key: &str) -> String {
             for spec in PROVIDERS {
                 if k == spec.backend_env {
                     return format!("{}.backend", spec.id);
+                }
+                if k == spec.cli_profile_env {
+                    return format!("{}.cli_profile", spec.id);
                 }
                 if k == spec.opencode_env {
                     return format!("opencode.{}.provider", spec.id);
@@ -335,12 +388,14 @@ pub fn run(verbose: bool) -> anyhow::Result<()> {
     let mut has_warn = false;
     let mut has_error = false;
     let mut cursor_list_cache: Option<crate::executors::cursor_models::ModelList> = None;
+    let cli_profiles = env.cli_profiles();
 
     for spec in PROVIDERS {
         let backend = env
             .lookup(spec.backend_env)
             .map(|(v, _)| v)
             .unwrap_or_else(|| "api".to_string());
+        let profile_name = env.lookup(spec.cli_profile_env).map(|(v, _)| v);
 
         let in_scope = match &allowed {
             None => true,
@@ -387,6 +442,10 @@ pub fn run(verbose: bool) -> anyhow::Result<()> {
             } else {
                 (false, format!("{} unset", spec.api_key_env))
             }
+        } else if let Some((ok, detail)) =
+            profile_backend_dependency(spec, &backend, profile_name.as_deref(), &cli_profiles)
+        {
+            (ok, detail)
         } else if let Some(bin) = backend_binary(&backend) {
             match which(bin) {
                 Some(path) => (true, format!("{bin} ({})", path.display())),
@@ -620,4 +679,65 @@ pub fn run(verbose: bool) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::types::{CliProfileInterface, CliPromptMode};
+    use crate::models::Provider;
+
+    fn cli_profile(command: String) -> CliProfile {
+        CliProfile {
+            command,
+            args: vec!["-p".to_string()],
+            env: BTreeMap::new(),
+            interface: CliProfileInterface::StreamJson,
+            prompt: CliPromptMode::Stdin,
+            headless: true,
+        }
+    }
+
+    #[test]
+    fn profile_backend_dependency_reports_selected_profile_command() {
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "claude".to_string(),
+            cli_profile(std::env::current_exe().unwrap().display().to_string()),
+        );
+
+        let (ok, detail) = profile_backend_dependency(
+            Provider::Anthropic.spec(),
+            "claude-cli",
+            Some("claude"),
+            &profiles,
+        )
+        .unwrap();
+
+        assert!(ok);
+        assert!(detail.contains("profile 'claude' command"));
+    }
+
+    #[test]
+    fn profile_backend_dependency_reports_missing_selected_profile_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing-claude");
+        let mut profiles = BTreeMap::new();
+        profiles.insert(
+            "claude".to_string(),
+            cli_profile(missing.display().to_string()),
+        );
+
+        let (ok, detail) = profile_backend_dependency(
+            Provider::Anthropic.spec(),
+            "claude-cli",
+            Some("claude"),
+            &profiles,
+        )
+        .unwrap();
+
+        assert!(!ok);
+        assert!(detail.contains("profile 'claude' command"));
+        assert!(detail.contains("not found"));
+    }
 }
