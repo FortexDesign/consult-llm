@@ -26,6 +26,7 @@ pub fn normalize_models(
         Some(s) => s.into_vec(),
         None => match group_fallback {
             Some(g) => g.entries.iter().map(|e| e.model.clone()).collect(),
+            None if !registry.default_models.is_empty() => registry.default_models.clone(),
             None => vec![registry.resolve_model(None)?],
         },
     };
@@ -122,6 +123,7 @@ mod tests {
             ],
             fallback_model: "gpt-5.2".into(),
             default_model: None,
+            default_models: vec![],
         }
     }
 
@@ -207,6 +209,62 @@ mod tests {
         };
         let out = normalize_models(&reg(), None, Some(&group)).unwrap();
         assert_eq!(out, vec!["gpt-5.2", "gpt-5.2", "gemini-2.5-pro"]);
+    }
+
+    fn reg_with_default_models(default_models: Vec<&str>) -> ModelRegistry {
+        ModelRegistry {
+            default_models: default_models.into_iter().map(str::to_string).collect(),
+            ..reg()
+        }
+    }
+
+    #[test]
+    fn normalize_none_uses_configured_default_models() {
+        let out = normalize_models(
+            &reg_with_default_models(vec!["gpt-5.2", "gemini-2.5-pro"]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(out, vec!["gpt-5.2", "gemini-2.5-pro"]);
+    }
+
+    #[test]
+    fn normalize_none_preserves_duplicate_default_models() {
+        let out = normalize_models(
+            &reg_with_default_models(vec!["gpt-5.2", "gpt-5.2", "gemini-2.5-pro"]),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(out, vec!["gpt-5.2", "gpt-5.2", "gemini-2.5-pro"]);
+    }
+
+    #[test]
+    fn normalize_none_with_empty_default_models_uses_default_model() {
+        let mut registry = reg();
+        registry.default_model = Some("gemini-2.5-pro".into());
+
+        let out = normalize_models(&registry, None, None).unwrap();
+
+        assert_eq!(out, vec!["gemini-2.5-pro"]);
+    }
+
+    #[test]
+    fn normalize_group_fallback_wins_over_configured_default_models() {
+        let group = StoredGroup {
+            id: "group_abc".into(),
+            entries: vec![entry("gpt-5.2", "api_x"), entry("gpt-5.2", "api_y")],
+        };
+
+        let out = normalize_models(
+            &reg_with_default_models(vec!["gemini-2.5-pro"]),
+            None,
+            Some(&group),
+        )
+        .unwrap();
+
+        assert_eq!(out, vec!["gpt-5.2", "gpt-5.2"]);
     }
 
     #[test]

@@ -47,7 +47,7 @@ pub fn parse_config_with_cli_profiles(
     let config = Config {
         providers,
         default_model: resolved_default.clone(),
-        default_models: resolved_default_models,
+        default_models: resolved_default_models.clone(),
         codex_reasoning_effort,
         codex_extra_args,
         gemini_extra_args,
@@ -57,7 +57,8 @@ pub fn parse_config_with_cli_profiles(
         cli_profiles,
     };
 
-    let registry = registry::build_registry(enabled_models, resolved_default);
+    let registry =
+        registry::build_registry(enabled_models, resolved_default, resolved_default_models);
 
     Ok((config, registry))
 }

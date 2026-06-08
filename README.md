@@ -412,7 +412,7 @@ consult-llm install-skills            # install bundled skills to platform skill
 consult-llm update                    # self-update the binary
 ```
 
-`consult-llm models` shows which models are active based on the configuration loaded for the current directory and prints `Default models:`, the ordered list workflow skills use when the user does not pass explicit model flags. The `Default -m args:` line is a convenience for same-prompt calls; `--run` workflows use the model list to build one `--run model=...` entry per prompt.
+`consult-llm models` shows which models are active based on the configuration loaded for the current directory and prints `Default models:`, the ordered list used when `-m` is omitted. The `Default -m args:` line is a convenience for same-prompt calls; `--run` workflows use the model list to build one `--run model=...` entry per prompt.
 
 `consult-llm doctor` checks that each provider's backend dependency (API key or CLI binary) is satisfied, shows which config files were loaded, and validates session storage. Pass `--verbose` to see all config keys including unset defaults.
 
@@ -593,10 +593,10 @@ consult-llm config set allowed_models '[gemini, openai]'
 Model selection has three layers:
 
 - `allowed_models` is the allowlist: it restricts which exact model IDs are enabled and which selectors can resolve. It also validates `default_model`, `default_models`, and explicit `--<selector>` skill flags.
-- `default_model` controls ordinary single-response CLI calls where `-m` is omitted.
-- `default_models` controls workflow skills that fan out to multiple model calls; it preserves order and duplicates, so `[openai, openai]` intentionally samples OpenAI twice.
+- `default_model` controls single-response CLI calls where `-m` is omitted and `default_models` is empty or unset.
+- `default_models` controls multi-model calls where `-m` is omitted; it preserves order and duplicates, so `[openai, openai]` intentionally samples OpenAI twice. When `default_models` is empty or unset, the CLI falls back to `default_model`, then the built-in fallback model.
 
-If `default_models` is unset, workflow skills default to the enabled models after applying `allowed_models` and backend availability. If `default_models` names a model excluded by `allowed_models`, config loading fails instead of silently using it.
+If `default_models` names a model excluded by `allowed_models`, config loading fails instead of silently using it.
 
 Example `~/.config/consult-llm/config.yaml`:
 
@@ -726,7 +726,7 @@ Environment variables override config file values.
 | `MINIMAX_API_KEY`                        | MiniMax API key                                                                        |                                                   |                                          |
 | `XAI_API_KEY`                            | xAI API key for Grok models                                                            |                                                   |                                          |
 | `CONSULT_LLM_DEFAULT_MODEL`              | Model or selector to use for single-response calls when `-m` is omitted                | selector or exact model ID                        | first available                          |
-| `CONSULT_LLM_DEFAULT_MODELS`             | Comma-separated ordered fan-out defaults for workflow skills; duplicates are preserved | selectors or exact model IDs                      | enabled models                           |
+| `CONSULT_LLM_DEFAULT_MODELS`             | Comma-separated ordered multi-model defaults when `-m` is omitted; duplicates preserved | selectors or exact model IDs                      | empty (falls through to default_model then fallback) |
 | `CONSULT_LLM_GEMINI_BACKEND`             | Backend for Gemini models                                                              | `api` `gemini-cli` `cursor-cli` `opencode`        | `api`                                    |
 | `CONSULT_LLM_OPENAI_BACKEND`             | Backend for OpenAI models                                                              | `api` `codex-cli` `cursor-cli` `opencode`         | `api`                                    |
 | `CONSULT_LLM_DEEPSEEK_BACKEND`           | Backend for DeepSeek models                                                            | `api` `opencode`                                  | `api`                                    |

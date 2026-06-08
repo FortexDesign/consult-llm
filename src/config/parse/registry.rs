@@ -95,6 +95,7 @@ pub fn resolve_enabled_models(
 pub fn build_registry(
     enabled_models: Vec<String>,
     default_model: Option<String>,
+    default_models: Vec<String>,
 ) -> Arc<ModelRegistry> {
     let fallback_model = if enabled_models.contains(&"gpt-5.2".to_string()) {
         "gpt-5.2".to_string()
@@ -105,6 +106,7 @@ pub fn build_registry(
         allowed_models: enabled_models,
         fallback_model,
         default_model,
+        default_models,
     })
 }
 

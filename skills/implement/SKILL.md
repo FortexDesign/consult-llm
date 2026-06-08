@@ -232,7 +232,7 @@ cat <<'__CONSULT_LLM_END__' | consult-llm --task plan -f <file> -f <file>
 __CONSULT_LLM_END__
 ```
 
-If reviewer selectors were supplied, pass one `-m <selector>` per selector. Otherwise use consult-llm defaults. Always set Bash `timeout` to `600000`.
+If reviewer selectors were supplied, pass one `-m <selector>` per selector. Otherwise omit `-m` so consult-llm applies configured `default_models` when present, then `default_model` or fallback. Always set Bash `timeout` to `600000`.
 
 Synthesize one rich implementation plan from the proposals and source evidence. Do not paste proposals blindly. The plan is the contract for execution.
 

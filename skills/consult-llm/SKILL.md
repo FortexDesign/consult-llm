@@ -34,7 +34,7 @@ Selectors and allowed models resolvable in this environment (availability depend
 !`consult-llm models`
 ```
 
-Pass a selector or an exact model ID to `-m`. Only enabled selectors are listed — anything not shown has no available model. For workflow skills that fan out to multiple models, use the ordered `Default models` list from `consult-llm models` when the user did not pass explicit model flags; duplicates in that list are intentional and must be preserved. For same-prompt calls, translate that list to repeated `-m <model>` args (the `Default -m args:` line is a convenience). For `--run`, create one `--run model=<model>,prompt-file=<path>` entry per default model instead; do not paste `-m` args into a `--run` invocation. For ordinary single-response CLI use, omit `-m` to use `default_model`/fallback. `-m` is ignored when `--web` is used.
+Pass a selector or exact model ID to `-m` only when overriding defaults. With no `-m`, consult-llm uses configured `default_models` when that config key is present and non-empty, preserving order and duplicates. If `default_models` is unset or empty, it falls back to `default_model`, then the built-in fallback model. For same-prompt multi-model calls, omit `-m` to use those configured defaults; use repeated `-m` only for explicit overrides. For `--run`, create one `--run model=<model>,prompt-file=<path>` entry per desired run; `--run` does not consume omitted-`-m` defaults. `-m` is ignored when `--web` is used.
 
 **Multi-model:** repeat `-m` to consult multiple model positions in parallel (e.g. `-m gemini -m openai`, max 5 total runs). You may repeat the same selector/model (e.g. `-m openai -m openai`) to get independent calls with the same prompt. The response is a group format: first line is `[thread_id:group_xxx]`, each model's answer under a `## Model: <id>` header preceded by `[model:<id>] [thread_id:<per-model-id>]`. When the same resolved model appears more than once, only those duplicate sections use `## Model: <id>#K` and `[model:<id>#K]` labels. Pass `-t group_xxx` to resume all group positions together on the next turn; pass an individual per-model thread ID with a single `-m <model>` to resume just that model outside the group context.
 
@@ -62,7 +62,7 @@ Ask neutral, open-ended questions. Do not suggest specific solutions in the prom
 
 | Flag                         | Purpose                                                         |
 | ---------------------------- | --------------------------------------------------------------- |
-| `-m, --model <selector\|id>` | See "Models" above. Usually omit.                               |
+| `-m, --model <selector\|id>` | See "Models" above. Omit for configured defaults.                   |
 | `-f, --file <path>`          | Repeatable. File context — path + code block.                   |
 | `-t, --thread-id <id>`       | Resume a multi-turn conversation. See "Multi-turn".             |
 | `--task <mode>`              | Persona. See "Task modes" above.                                |

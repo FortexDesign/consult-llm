@@ -22,7 +22,7 @@ pub fn resolve_default_models(
     enabled_models: &[String],
 ) -> Result<Vec<String>, ConfigError> {
     let Some(raw) = env("CONSULT_LLM_DEFAULT_MODELS") else {
-        return Ok(enabled_models.to_vec());
+        return Ok(Vec::new());
     };
     let items: Vec<String> = raw
         .split(',')
@@ -124,6 +124,23 @@ mod tests {
         let err = parse_config(env).unwrap_err();
         assert!(
             matches!(err, ConfigError::InvalidDefaultModels { ref model, .. } if model == "missing")
+        );
+    }
+
+    #[test]
+    fn test_parse_config_default_models_propagate_to_registry() {
+        let env = env_from(&[
+            ("OPENAI_API_KEY", "key"),
+            ("GEMINI_API_KEY", "key"),
+            ("CONSULT_LLM_DEFAULT_MODELS", "openai,gemini,openai"),
+        ]);
+
+        let (config, registry) = parse_config(env).unwrap();
+
+        assert_eq!(registry.default_models, config.default_models);
+        assert_eq!(
+            registry.default_models,
+            vec!["gpt-5.5", "gemini-3.1-pro-preview", "gpt-5.5"]
         );
     }
 }

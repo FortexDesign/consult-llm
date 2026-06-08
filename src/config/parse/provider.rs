@@ -216,7 +216,7 @@ mod tests {
         assert!(config.allowed_models.contains(&"grok-4.3".to_string()));
         assert_eq!(config.providers[&Provider::Grok].backend, Backend::Api);
         assert_eq!(registry.resolve_model(Some("grok")).unwrap(), "grok-4.3");
-        assert_eq!(config.default_models, vec!["grok-4.3"]);
+        assert!(config.default_models.is_empty());
     }
 
     #[test]

@@ -6,6 +6,7 @@ pub struct ModelRegistry {
     pub allowed_models: Vec<String>,
     pub fallback_model: String,
     pub default_model: Option<String>,
+    pub default_models: Vec<String>,
 }
 
 impl ModelRegistry {
@@ -135,6 +136,7 @@ mod tests {
             allowed_models: vec!["gpt-5.2".into(), "gemini-2.5-pro".into()],
             fallback_model: "gpt-5.2".into(),
             default_model: None,
+            default_models: vec![],
         };
         assert_eq!(
             reg.resolve_model(Some("gemini-2.5-pro")).unwrap(),
@@ -152,6 +154,7 @@ mod tests {
             ],
             fallback_model: "gpt-5.2".into(),
             default_model: None,
+            default_models: vec![],
         };
         // "gemini" selector should resolve to best available
         assert_eq!(
@@ -166,6 +169,7 @@ mod tests {
             allowed_models: vec!["gpt-5.2".into(), "gemini-2.5-pro".into()],
             fallback_model: "gpt-5.2".into(),
             default_model: None,
+            default_models: vec![],
         };
         // "gemini" selector should skip gemini-3.1-pro-preview (not in allowed) and pick gemini-2.5-pro
         assert_eq!(reg.resolve_model(Some("gemini")).unwrap(), "gemini-2.5-pro");
@@ -177,6 +181,7 @@ mod tests {
             allowed_models: vec!["gpt-5.4".into(), "gpt-5.3-codex".into(), "gpt-5.2".into()],
             fallback_model: "gpt-5.4".into(),
             default_model: None,
+            default_models: vec![],
         };
         // "openai" selector should resolve to highest priority: gpt-5.4
         assert_eq!(reg.resolve_model(Some("openai")).unwrap(), "gpt-5.4");
@@ -188,6 +193,7 @@ mod tests {
             allowed_models: vec!["gpt-5.3-codex".into(), "gpt-5.2-codex".into()],
             fallback_model: "gpt-5.3-codex".into(),
             default_model: None,
+            default_models: vec![],
         };
         // When only codex models available, "openai" should still resolve
         assert_eq!(reg.resolve_model(Some("openai")).unwrap(), "gpt-5.3-codex");
@@ -199,6 +205,7 @@ mod tests {
             allowed_models: vec!["gpt-5.2".into(), "gemini-2.5-pro".into()],
             fallback_model: "gpt-5.2".into(),
             default_model: Some("gemini-2.5-pro".into()),
+            default_models: vec![],
         };
         assert_eq!(reg.resolve_model(None).unwrap(), "gemini-2.5-pro");
     }
@@ -209,6 +216,7 @@ mod tests {
             allowed_models: vec!["gpt-5.2".into(), "gemini-2.5-pro".into()],
             fallback_model: "gpt-5.2".into(),
             default_model: None,
+            default_models: vec![],
         };
         assert_eq!(reg.resolve_model(None).unwrap(), "gpt-5.2");
     }
@@ -219,6 +227,7 @@ mod tests {
             allowed_models: vec!["gpt-5.2".into()],
             fallback_model: "gpt-5.2".into(),
             default_model: None,
+            default_models: vec![],
         };
         assert!(reg.resolve_model(Some("invalid")).is_err());
     }
