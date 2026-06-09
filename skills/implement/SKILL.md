@@ -60,8 +60,11 @@ Write artifacts under `history/` using today's date prefix.
 Required:
 
 - implementation note or rich implementation plan
-- result sentinel
 - final summary
+
+Required only when `--parent-plan` is provided or the caller explicitly requests one:
+
+- result sentinel
 
 Optional:
 
@@ -313,7 +316,7 @@ You are executing one bounded implementation plan in this repository.
 - Do not overwrite user changes.
 - Run the validation commands.
 - Do not stage or commit `history/` artifacts.
-- Write the result sentinel described below.
+- Write the result sentinel described below only when `--parent-plan` is provided or the caller explicitly requests one.
 
 ## Task
 
@@ -329,7 +332,7 @@ You are executing one bounded implementation plan in this repository.
 
 ## Result sentinel
 
-Write `history/<date>-<slug>-result.md` with the sentinel format from the plan.
+When `--parent-plan` is provided or the caller explicitly requests one, write the requested result sentinel with the sentinel format from the plan. For standalone `/implement` runs, do not write a result sentinel.
 ```
 
 Load the `sideagent` skill before invoking sideagent. Follow that skill's current invocation contract. Use the configured default profile unless the user or local configuration names a specific profile. Do not invent a profile.
@@ -343,7 +346,7 @@ Run the selected validation command. Also run any focused tests from the plan.
 For `verification: light`, check:
 
 - validation passed
-- result sentinel exists and reports success
+- when a result sentinel is required, it exists and reports success
 - diff follows the note or plan
 - acceptance criteria are plausibly covered
 - no obvious scope drift, regression, or unsafe overwrite occurred
@@ -361,7 +364,7 @@ Only auto-fix localized must-fix issues with one clear answer. If a fix requires
 
 ## Result sentinel
 
-Before committing, write or confirm a result sentinel under `history/`:
+Standalone `/implement` runs do not write a result sentinel. When `--parent-plan` is provided or the caller explicitly requests one, write or confirm a result sentinel under `history/` before committing:
 
 ```markdown
 # Implementation Result: <feature>
@@ -394,6 +397,8 @@ validation_status: passed | failed | skipped
 
 Update `end_commit` and `commit` after committing. This update still stays uncommitted when the sentinel is under `history/`.
 
+When no result sentinel is required, include the same status, validation, acceptance, and blocker facts in the final summary instead.
+
 ## Phase F: commit and summarize
 
 Commit when validation passes, verification passes, no blockers remain, and you are confident the change is done.
@@ -414,6 +419,6 @@ After committing, print the final summary:
 - Validation: `<command>` <passed | failed | skipped>
 - Verification: <light | full> <passed | failed>
 - Commit: `<sha>`
-- Sentinel: `<path>`
+- Sentinel: `<path or n/a>`
 - Blockers: <none or list>
 ```
