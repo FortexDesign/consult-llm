@@ -7,8 +7,7 @@ use crate::schema::TaskMode;
 
 const BASE_SYSTEM_PROMPT: &str = "You are an expert software engineering consultant. You are communicating with another AI system, not a human.\n\nCommunication style:\n- Skip pleasantries and praise\n- Be direct and specific\n- Respond in Markdown\n\nMindset:\n- Do not restrict yourself to minimal or conservative changes\n- Always strive for the best possible architecture and long-term maintainability\n- Recommend large-scale refactorings or rewrites if the current approach is suboptimal\n- When a better architecture requires significant changes, say so — don't default to minimal patches that preserve existing design flaws";
 
-const CLI_MODE_SUFFIX: &str =
-    "\n\nIMPORTANT: Do not edit files yourself, only provide recommendations and code examples";
+const CLI_MODE_SUFFIX: &str = "\n\nIMPORTANT: Do not edit files yourself, only provide recommendations and code examples\n\nYou may inspect additional repository files and run read-only commands when useful.\nDo not assume the provided files are complete context.\nPrefer gathering evidence before making claims.";
 
 fn mode_overlay(mode: TaskMode) -> &'static str {
     match mode {
