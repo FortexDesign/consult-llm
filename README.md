@@ -71,7 +71,7 @@ For the more detailed flow, [continue below](#how-it-really-works).
 
 - **Get a second opinion from another model** from your agent with relevant file context (`/consult`)
 - **Have models debate the best approach** and synthesize a consensus (`/debate`)
-- **Use existing subscriptions** via CLI backends without API keys ([Gemini CLI](#gemini-cli), [Codex CLI](#codex-cli), [Cursor CLI](#cursor-cli), [Claude CLI](#claude-cli), [OpenCode](#opencode))
+- **Use existing subscriptions** via CLI backends without API keys ([Gemini CLI](#gemini-cli), [Codex CLI](#codex-cli), [Cursor CLI](#cursor-cli), [Claude CLI](#profile-backend), [OpenCode](#opencode))
 - **Continue conversations across requests** with `thread_id`
 - **Copy prompts to clipboard** for browser-based LLMs (`--web`)
 - **[Monitor](#monitor) active and past runs** in a real-time TUI
@@ -467,13 +467,17 @@ Shell out to an already-installed local CLI. No API keys needed in `consult-llm`
 
 A key advantage over the API backend: CLI agents can browse your codebase, run commands, and do their own research before responding. The API backend receives only the prompt and files you explicitly include.
 
-**Gemini CLI**: requires the [Gemini CLI](https://github.com/google-gemini/gemini-cli) and `gemini login`:
+#### Gemini CLI
+
+Requires the [Gemini CLI](https://github.com/google-gemini/gemini-cli) and `gemini login`:
 
 ```bash
 consult-llm config set gemini.backend gemini-cli
 ```
 
-**Codex CLI**: requires Codex CLI and `codex login`:
+#### Codex CLI
+
+Requires Codex CLI and `codex login`:
 
 ```bash
 consult-llm config set openai.backend codex-cli
@@ -486,7 +490,9 @@ consult-llm config set openai.extra_args '--dangerously-bypass-approvals-and-san
 
 The same `extra_args` field is supported on `gemini:` for the Gemini CLI backend.
 
-**Cursor CLI**: routes through `cursor-agent`:
+#### Cursor CLI
+
+Routes through `cursor-agent`:
 
 ```bash
 consult-llm config set openai.backend cursor-cli
@@ -495,7 +501,9 @@ consult-llm config set gemini.backend cursor-cli
 
 If your prompts need shell commands in Cursor CLI ask mode, allow them in `~/.cursor/cli-config.json`.
 
-**Profile backend**: routes any model family through a named CLI profile. This is useful when a Claude Code CLI process proxies another provider, for example routing Gemini models through a local [claude-code-proxy](https://github.com/raine/claude-code-proxy):
+#### Profile backend
+
+Routes any model family through a named CLI profile. This is useful when a Claude Code CLI process proxies another provider, for example routing Gemini models through a local [claude-code-proxy](https://github.com/raine/claude-code-proxy):
 
 ```yaml
 cli_profiles:
