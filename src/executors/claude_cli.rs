@@ -16,7 +16,7 @@ impl ClaudeCliExecutor {
         Self {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
-                supports_threads: false,
+                supports_threads: true,
                 supports_file_refs: false,
             },
             profile,
@@ -43,11 +43,15 @@ impl LlmExecutor for ClaudeCliExecutor {
             spool,
         } = req;
 
-        if thread_id.is_some() {
-            anyhow::bail!("Claude CLI executor does not support thread resume");
-        }
+        let tid = thread_id.as_deref();
 
-        let full_prompt = format!("{system_prompt}\n\n{prompt}");
+        // When resuming a session, don't prepend the system prompt -
+        // the session already has all the context.
+        let full_prompt = if tid.is_some() {
+            prompt.clone()
+        } else {
+            format!("{system_prompt}\n\n{prompt}")
+        };
 
         let profile = &self.profile.profile;
 
@@ -62,9 +66,12 @@ impl LlmExecutor for ClaudeCliExecutor {
             "--output-format".into(),
             "stream-json".into(),
             "--verbose".into(),
-            "--no-session-persistence".into(),
             "--bare".into(),
         ]);
+        if let Some(t) = tid {
+            args.push("--resume".into());
+            args.push(t.to_string());
+        }
         if let Some(ref effort) = profile.effort {
             args.push("--effort".into());
             args.push(effort.clone());
@@ -721,19 +728,15 @@ mod tests {
     }
 
     #[test]
-    fn executor_rejects_thread_resume() {
+    fn executor_supports_thread_resume() {
         let profile = make_stdin_profile("sh", vec!["-c".to_string(), "echo ok".to_string()]);
         let executor = ClaudeCliExecutor::new(profile);
         let req = ExecutionRequest {
             thread_id: Some("thr_abc".to_string()),
             ..request("prompt", "system: test")
         };
-        let err = executor.execute(req).unwrap_err();
-        let msg = format!("{:#}", err);
-        assert!(
-            msg.contains("thread resume"),
-            "should mention thread resume not supported: {msg}"
-        );
+        let result = executor.execute(req).expect("should support thread resume");
+        assert_eq!(result.response.trim(), "ok");
     }
 
     #[test]

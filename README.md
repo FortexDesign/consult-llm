@@ -624,7 +624,7 @@ the conversation with full context from prior turns.
   use write-through caching for the payment endpoints.
 ```
 
-This works with Gemini CLI, Codex CLI, Cursor CLI, and OpenCode. Claude CLI profiles currently do not support thread resume. See the [debate skills](#skills) for multi-LLM workflows that use thread IDs to maintain context across debate rounds.
+This works with Gemini CLI, Codex CLI, Cursor CLI, OpenCode, and Claude CLI. See the [debate skills](#skills) for multi-LLM workflows that use thread IDs to maintain context across debate rounds.
 
 ### Config files
 
