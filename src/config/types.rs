@@ -13,6 +13,7 @@ pub enum Backend {
     GeminiCli,
     CursorCli,
     OpenCodeCli,
+    ClaudeCli,
     Profile,
 }
 
@@ -24,7 +25,8 @@ impl Backend {
             "gemini-cli" => Some(Backend::GeminiCli),
             "cursor-cli" => Some(Backend::CursorCli),
             "opencode" => Some(Backend::OpenCodeCli),
-            "profile" | "claude-cli" => Some(Backend::Profile),
+            "claude-cli" => Some(Backend::ClaudeCli),
+            "profile" => Some(Backend::Profile),
             _ => None,
         }
     }
@@ -36,6 +38,7 @@ impl Backend {
             Backend::GeminiCli => "gemini-cli",
             Backend::CursorCli => "cursor-cli",
             Backend::OpenCodeCli => "opencode",
+            Backend::ClaudeCli => "claude-cli",
             Backend::Profile => "profile",
         }
     }
@@ -51,6 +54,7 @@ pub struct ProviderRuntimeConfig {
 }
 
 impl ProviderRuntimeConfig {
+    /// Returns true if this provider has an available executor for its backend.
     /// Returns true if this provider has an available executor for its backend.
     /// For API backends this means an API key is set. For profile-backed backends
     /// it means a matching CLI profile is selected. Built-in CLI backends always
@@ -159,6 +163,7 @@ pub struct Config {
     pub codex_reasoning_effort: String,
     pub codex_extra_args: Vec<String>,
     pub gemini_extra_args: Vec<String>,
+    pub claude_extra_args: Vec<String>,
     pub api_idle_timeout: Duration,
     pub system_prompt_path: Option<String>,
     pub allowed_models: Vec<String>,

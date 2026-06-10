@@ -273,7 +273,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         opencode_env: "CONSULT_LLM_OPENCODE_ANTHROPIC_PROVIDER",
         default_opencode_provider: "anthropic",
         reasoning_effort_env: None,
-        extra_args_env: None,
+        extra_args_env: Some("CONSULT_LLM_CLAUDE_EXTRA_ARGS"),
         cli_profile_env: "CONSULT_LLM_ANTHROPIC_CLI_PROFILE",
     },
     ProviderSpec {
@@ -545,7 +545,10 @@ mod tests {
             }
             if let Some(env) = spec.extra_args_env {
                 assert!(!env.is_empty());
-                assert!(matches!(spec.provider, Provider::Gemini | Provider::OpenAI));
+                assert!(matches!(
+                    spec.provider,
+                    Provider::Gemini | Provider::OpenAI | Provider::Anthropic
+                ));
             }
             assert!(!spec.cli_profile_env.is_empty());
             assert!(
