@@ -520,7 +520,9 @@ The example passes literal environment values and arguments to the CLI process. 
 
 Run `consult-llm doctor` after configuring it. The provider row should show `via profile` and the selected profile command, for example `profile 'claude-gemini-proxy' command claude (...)`.
 
-**OpenCode**: routes through `opencode` to Copilot, OpenRouter, or other providers:
+#### OpenCode
+
+Routes through `opencode` to Copilot, OpenRouter, or other providers:
 
 ```bash
 consult-llm config set openai.backend opencode
@@ -533,7 +535,9 @@ consult-llm config set opencode.default_provider copilot
 consult-llm config set openai.opencode_provider openai
 ```
 
-**OpenRouter**: routes `openrouter/*` models through OpenCode:
+#### OpenRouter
+
+Routes `openrouter/*` models through OpenCode:
 
 ```bash
 consult-llm config set openrouter.backend opencode
