@@ -119,7 +119,14 @@ impl LlmExecutor for OpenCodeCliExecutor {
             format!("{system_prompt}\n\n{message}")
         };
 
-        let opencode_model = format!("{}/{model}", self.provider_prefix);
+        let opencode_model = if model.contains('/') {
+            // Model already includes a provider prefix
+            // (e.g. "openrouter/xiaomi/mimo-v2.5-pro").
+            // Pass through as-is to avoid double-prefixing.
+            model.to_string()
+        } else {
+            format!("{}/{model}", self.provider_prefix)
+        };
 
         let mut args: Vec<String> = vec![
             "run".to_string(),

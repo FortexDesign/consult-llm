@@ -25,6 +25,7 @@ pub enum Provider {
     MiniMax,
     Anthropic,
     Grok,
+    OpenRouter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -126,6 +127,7 @@ pub const ALL_PROVIDERS: &[Provider] = &[
     Provider::MiniMax,
     Provider::Anthropic,
     Provider::Grok,
+    Provider::OpenRouter,
 ];
 
 /// The provider registry. Order matters: `all_builtin_models()` flattens in this order,
@@ -298,6 +300,30 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_GROK_CLI_PROFILE",
     },
+    ProviderSpec {
+        provider: Provider::OpenRouter,
+        cursor_model_prefixes: &[],
+        id: "openrouter",
+        model_prefixes: &["openrouter/"],
+        api_base_url: Some("https://openrouter.ai/api/v1"),
+        api_protocol: ApiProtocol::OpenAiCompat(OpenAiCompatRuntime {
+            extra_body: None,
+            think_tags: None,
+        }),
+        builtin_models: &["openrouter/xiaomi/mimo-v2.5-pro"],
+        selector_priorities: &["openrouter/xiaomi/mimo-v2.5-pro"],
+        api_key_env: "OPENROUTER_API_KEY",
+        backend_env: "CONSULT_LLM_OPENROUTER_BACKEND",
+        legacy_backend_env: None,
+        legacy_mode_env: None,
+        cli_backend_value: None,
+        allowed_backends: &["api", "opencode", "profile"],
+        opencode_env: "CONSULT_LLM_OPENCODE_OPENROUTER_PROVIDER",
+        default_opencode_provider: "openrouter",
+        reasoning_effort_env: None,
+        extra_args_env: None,
+        cli_profile_env: "CONSULT_LLM_OPENROUTER_CLI_PROFILE",
+    },
 ];
 
 fn model_matches_prefix(model: &str, prefix: &str) -> bool {
@@ -409,6 +435,7 @@ mod tests {
             ("MiniMax-M2.7", Provider::MiniMax),
             ("claude-opus-4-7", Provider::Anthropic),
             ("grok-4.3", Provider::Grok),
+            ("openrouter/xiaomi/mimo-v2.5-pro", Provider::OpenRouter),
         ];
 
         let builtins = all_builtin_models();

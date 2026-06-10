@@ -544,9 +544,12 @@ grok:
   api_key: xai-test
 opencode:
   default_provider: copilot
+openrouter:
+  backend: api
+  api_key: or-test
 "#;
         let cfg = ConfigFile::parse(yaml).expect("parses");
-        assert_eq!(cfg.providers.len(), 6);
+        assert_eq!(cfg.providers.len(), 7);
         for spec in PROVIDERS {
             assert!(
                 cfg.providers.contains_key(&spec.provider),
