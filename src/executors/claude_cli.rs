@@ -160,9 +160,11 @@ impl ClaudeCliParser {
                 .and_then(|id| id.as_str())
                 .map(|id| smallvec![ParsedStreamEvent::SessionStarted { id: id.to_string() }])
                 .unwrap_or_else(|| smallvec![]),
-            Some("thinking_tokens") => smallvec![ParsedStreamEvent::Thinking {
-                text: String::new(),
-            }],
+            // `thinking_tokens` are incremental token-count heartbeats emitted
+            // during the model's thinking phase. They carry no content and
+            // would flood the stream with empty Thinking events, keeping the
+            // TUI stuck on "Thinking...". Skip them.
+            Some("thinking_tokens") => smallvec![],
             _ => smallvec![],
         }
     }
