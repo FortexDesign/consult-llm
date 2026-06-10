@@ -43,6 +43,10 @@ pub fn parse_config_with_cli_profiles(
         env("CONSULT_LLM_GEMINI_EXTRA_ARGS").as_deref(),
         "CONSULT_LLM_GEMINI_EXTRA_ARGS",
     )?;
+    let claude_extra_args = parse_extra_args(
+        env("CONSULT_LLM_CLAUDE_EXTRA_ARGS").as_deref(),
+        "CONSULT_LLM_CLAUDE_EXTRA_ARGS",
+    )?;
 
     let config = Config {
         providers,
@@ -51,6 +55,7 @@ pub fn parse_config_with_cli_profiles(
         codex_reasoning_effort,
         codex_extra_args,
         gemini_extra_args,
+        claude_extra_args,
         api_idle_timeout,
         system_prompt_path: env("CONSULT_LLM_SYSTEM_PROMPT_PATH"),
         allowed_models: enabled_models.clone(),

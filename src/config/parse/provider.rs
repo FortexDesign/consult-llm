@@ -295,15 +295,12 @@ mod tests {
             Backend::GeminiCli,
             Backend::CursorCli,
             Backend::OpenCodeCli,
+            Backend::ClaudeCli,
             Backend::Profile,
         ];
         for b in &backends {
             assert_eq!(Backend::from_builtin_str(b.as_str()), Some(b.clone()));
         }
-        assert_eq!(
-            Backend::from_builtin_str("claude-cli"),
-            Some(Backend::Profile)
-        );
     }
 
     // --- Profile-backed backend tests ---
@@ -330,10 +327,8 @@ mod tests {
 
     #[test]
     fn test_profile_backed_backend_exposes_selected_profile() {
-        // Include OPENAI_API_KEY so there is at least one enabled model;
-        // profile backends do not enable models in this phase.
         let env = env_from(&[
-            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "profile"),
             ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
             ("OPENAI_API_KEY", "sk-key"),
         ]);
@@ -365,7 +360,7 @@ mod tests {
     fn test_missing_cli_profile_reports_error() {
         // MissingCliProfile: the env var is not set at all.
         let env = env_from(&[
-            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "profile"),
             ("OPENAI_API_KEY", "sk-key"),
         ]);
         let err = super::super::parse_config_with_cli_profiles(env, BTreeMap::new()).unwrap_err();
@@ -384,7 +379,7 @@ mod tests {
     #[test]
     fn test_invalid_cli_profile_reports_error() {
         let env = env_from(&[
-            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "profile"),
             ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "nonexistent"),
         ]);
         let err =
@@ -437,7 +432,7 @@ mod tests {
     #[test]
     fn test_profile_backed_backend_enables_anthropic_models() {
         let env = env_from(&[
-            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "profile"),
             ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
         ]);
         let (config, _) =
@@ -448,6 +443,28 @@ mod tests {
                 .iter()
                 .any(|m| m.starts_with("claude")),
             "claude models should be enabled for executable profile-backed backends"
+        );
+    }
+
+    #[test]
+    fn test_claude_cli_native_backend_enables_models() {
+        // Backend::ClaudeCli is a native backend - no profile or API key needed.
+        let env = env_from(&[("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli")]);
+        let (config, _) =
+            super::super::parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        assert_eq!(config.backend_for(Provider::Anthropic), &Backend::ClaudeCli);
+        assert!(
+            config
+                .selected_cli_profile_for(Provider::Anthropic)
+                .is_none(),
+            "claude-cli native backend should not have a selected profile"
+        );
+        assert!(
+            config
+                .allowed_models
+                .iter()
+                .any(|m| m.starts_with("claude")),
+            "claude models should be enabled for native claude-cli backend"
         );
     }
 }

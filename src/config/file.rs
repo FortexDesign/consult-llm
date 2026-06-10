@@ -165,8 +165,8 @@ where
         .map_err(|err| E::custom(format!("invalid value for `{field}`: {err}")))
 }
 
-fn is_profile_backend(provider: Provider, backend: &str) -> bool {
-    backend == "profile" || (provider == Provider::Anthropic && backend == "claude-cli")
+fn is_profile_backend(_provider: Provider, backend: &str) -> bool {
+    backend == "profile"
 }
 
 fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<(), String> {
@@ -208,14 +208,9 @@ fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<
         if let Some(backend) = block.backend.as_deref()
             && !is_profile_backend(provider, backend)
         {
-            let mut allowed = vec!["profile"];
-            if provider == Provider::Anthropic {
-                allowed.push("claude-cli");
-            }
             return Err(format!(
-                "unsupported provider field `cli_profile` for provider `{}` with backend `{backend}`. expected one of: {}",
+                "unsupported provider field `cli_profile` for provider `{}` with backend `{backend}`. expected one of: profile",
                 spec.id,
-                allowed.join(" | ")
             ));
         }
     }
@@ -767,8 +762,8 @@ cli_profiles:
 
     #[test]
     fn test_provider_cli_profile_maps_to_env_key() {
-        let cfg = ConfigFile::parse("anthropic:\n  backend: claude-cli\n  cli_profile: claude\n")
-            .unwrap();
+        let cfg =
+            ConfigFile::parse("anthropic:\n  backend: profile\n  cli_profile: claude\n").unwrap();
         let m = cfg.to_env_map(ApiKeyPolicy::Allow).unwrap();
         assert_eq!(m["CONSULT_LLM_ANTHROPIC_CLI_PROFILE"], "claude");
     }
