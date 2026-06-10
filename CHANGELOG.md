@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.0.18 (2026-06-10)
+
+- Claude CLI profiles now support thread resume, letting you continue conversations across multiple turns through the `--resume` session mechanism. Previously thread resume was unsupported for Claude CLI; now it works like the other CLI backends
+
 ## v3.0.17 (2026-06-10)
 
 - New OpenRouter provider: `openrouter/*` models are now supported through both API (OpenAI-compatible) and OpenCode backends. Use `-m openrouter/auto` or any specific OpenRouter model ID
