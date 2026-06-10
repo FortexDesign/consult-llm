@@ -1,25 +1,42 @@
+use std::collections::BTreeMap;
+
 use smallvec::smallvec;
 
 use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{CliOutputParser, run_cli_executor_with_env};
 
-use crate::config::types::{CliProfileInterface, CliPromptMode, SelectedCliProfile};
+use crate::config::types::{CliProfileInterface, CliPromptMode};
+
+/// Configuration for a claude-cli executor, decoupled from the profile system.
+/// When the backend is `ClaudeCli` (native), this is constructed with defaults.
+/// When the backend is `Profile` with `CliProfileType::ClaudeCli`, it's converted
+/// from the selected profile.
+#[derive(Debug, Clone)]
+pub struct ClaudeCliConfig {
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+    pub interface: CliProfileInterface,
+    pub prompt: CliPromptMode,
+    pub effort: Option<String>,
+    pub model_env: Option<String>,
+}
 
 pub struct ClaudeCliExecutor {
     capabilities: LlmExecutorCapabilities,
-    profile: SelectedCliProfile,
+    config: ClaudeCliConfig,
 }
 
 impl ClaudeCliExecutor {
-    pub fn new(profile: SelectedCliProfile) -> Self {
+    pub fn new(config: ClaudeCliConfig) -> Self {
         Self {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
                 supports_threads: true,
                 supports_file_refs: false,
             },
-            profile,
+            config,
         }
     }
 }
@@ -53,14 +70,14 @@ impl LlmExecutor for ClaudeCliExecutor {
             format!("{system_prompt}\n\n{prompt}")
         };
 
-        let profile = &self.profile.profile;
+        let config = &self.config;
 
-        let mut args: Vec<String> = profile.args.clone();
-        let mut env = profile.env.clone();
+        let mut args: Vec<String> = config.args.clone();
+        let mut env = config.env.clone();
 
         // Auto-inject boilerplate flags, skipping any already present in
         // profile args to avoid duplication.
-        let output_format = match profile.interface {
+        let output_format = match config.interface {
             CliProfileInterface::StreamJson => "stream-json",
             CliProfileInterface::Json => "json",
             CliProfileInterface::Text => "text",
@@ -86,7 +103,7 @@ impl LlmExecutor for ClaudeCliExecutor {
             args.push(t.to_string());
         }
 
-        if let Some(effort) = &profile.effort
+        if let Some(effort) = &config.effort
             && !args.iter().any(|a| a == "--effort")
         {
             args.push("--effort".into());
@@ -94,7 +111,7 @@ impl LlmExecutor for ClaudeCliExecutor {
         }
 
         // Route the requested model to the CLI.
-        if let Some(model_env) = &profile.model_env {
+        if let Some(model_env) = &config.model_env {
             env.insert(model_env.clone(), model);
         } else if !args.iter().any(|a| a == "--model") {
             args.push("--model".into());
@@ -110,7 +127,7 @@ impl LlmExecutor for ClaudeCliExecutor {
             .or_insert_with(|| "1".into());
         env.entry("NO_COLOR".into()).or_insert_with(|| "1".into());
 
-        let stdin_prompt = match profile.prompt {
+        let stdin_prompt = match config.prompt {
             CliPromptMode::Stdin => Some(full_prompt),
             CliPromptMode::Argument => {
                 args.push(full_prompt);
@@ -118,10 +135,10 @@ impl LlmExecutor for ClaudeCliExecutor {
             }
         };
 
-        let mut parser = ClaudeCliParser::new(profile.interface.clone());
+        let mut parser = ClaudeCliParser::new(config.interface.clone());
 
         run_cli_executor_with_env(
-            &profile.command,
+            &config.command,
             &args,
             Some(&env),
             stdin_prompt.as_deref(),
@@ -643,8 +660,8 @@ mod tests {
         }
     }
 
-    fn make_stdin_profile(command: &str, args: Vec<String>) -> SelectedCliProfile {
-        make_profile(
+    fn make_stdin_profile(command: &str, args: Vec<String>) -> ClaudeCliConfig {
+        make_config(
             command,
             args,
             std::collections::BTreeMap::new(),
@@ -653,25 +670,21 @@ mod tests {
         )
     }
 
-    fn make_profile(
+    fn make_config(
         command: &str,
         args: Vec<String>,
         env: std::collections::BTreeMap<String, String>,
         prompt: CliPromptMode,
         model_env: Option<String>,
-    ) -> SelectedCliProfile {
-        SelectedCliProfile {
-            name: "test".to_string(),
-            profile: crate::config::types::CliProfile {
-                profile_type: crate::config::types::CliProfileType::ClaudeCli,
-                command: command.to_string(),
-                args,
-                env,
-                interface: CliProfileInterface::Text,
-                prompt,
-                effort: None,
-                model_env,
-            },
+    ) -> ClaudeCliConfig {
+        ClaudeCliConfig {
+            command: command.to_string(),
+            args,
+            env,
+            interface: CliProfileInterface::Text,
+            prompt,
+            effort: None,
+            model_env,
         }
     }
 
@@ -690,7 +703,7 @@ mod tests {
 
     #[test]
     fn executor_delivers_prompt_via_argument() {
-        let profile = make_profile(
+        let profile = make_config(
             "bash",
             vec![
                 "-c".to_string(),
@@ -716,7 +729,7 @@ mod tests {
     fn executor_passes_configured_args_and_env() {
         let mut env = std::collections::BTreeMap::new();
         env.insert("CLAUDE_CLI_TEST_VAR".to_string(), "env-value".to_string());
-        let profile = make_profile(
+        let profile = make_config(
             "sh",
             vec![
                 "-c".to_string(),
@@ -765,7 +778,7 @@ mod tests {
 
     #[test]
     fn executor_injects_model_env() {
-        let profile = make_profile(
+        let profile = make_config(
             "sh",
             vec![
                 "-c".to_string(),
@@ -788,7 +801,7 @@ mod tests {
     fn executor_model_env_overrides_profile_env() {
         let mut env = std::collections::BTreeMap::new();
         env.insert("ANTHROPIC_MODEL".to_string(), "stale-model".to_string());
-        let profile = make_profile(
+        let profile = make_config(
             "sh",
             vec![
                 "-c".to_string(),
