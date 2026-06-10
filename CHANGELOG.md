@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.16 (2026-06-10)
+
+- Claude CLI profiles are now much simpler to configure: `command` defaults to `claude`, `interface` to `stream-json`, and `prompt` to `stdin`. Required boilerplate flags and env vars are auto-injected, so profiles only need the values that differ from defaults
+- Added `effort` field to CLI profiles, letting you set the reasoning effort level per profile
+- Removed the `headless` field from CLI profiles — all profiles are now treated as non-interactive
+- CLI backends now prompt agents to inspect repository files and gather evidence before answering, improving response quality
+
 ## v3.0.15 (2026-06-08)
 
 - Added reusable CLI backend profiles, so any model family can route through a configured headless CLI process while keeping the normal model selector
