@@ -700,6 +700,7 @@ mod tests {
             env: BTreeMap::new(),
             interface: CliProfileInterface::StreamJson,
             prompt: CliPromptMode::Stdin,
+            effort: None,
             model_env: None,
         }
     }
@@ -766,5 +767,4 @@ mod tests {
         assert!(detail.contains("profile 'claude' command"));
         assert!(detail.contains("not found"));
     }
-
 }

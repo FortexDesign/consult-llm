@@ -96,14 +96,30 @@ impl Default for CliProfileType {
 pub struct CliProfile {
     #[serde(rename = "type", default)]
     pub profile_type: CliProfileType,
+    #[serde(default = "default_command")]
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
     pub env: std::collections::BTreeMap<String, String>,
+    #[serde(default = "default_interface")]
     pub interface: CliProfileInterface,
+    #[serde(default = "default_prompt")]
     pub prompt: CliPromptMode,
+    pub effort: Option<String>,
     pub model_env: Option<String>,
+}
+
+fn default_command() -> String {
+    "claude".to_string()
+}
+
+fn default_interface() -> CliProfileInterface {
+    CliProfileInterface::StreamJson
+}
+
+fn default_prompt() -> CliPromptMode {
+    CliPromptMode::Stdin
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -17,21 +17,12 @@ const TEMPLATE: &str = r#"# consult-llm user config
 # CLI backend profiles
 # cli_profiles:
 #   claude-gemini-proxy:
-#     type: claude-cli
 #     command: claude
-#     args:
-#       - -p
-#       - --output-format
-#       - stream-json
 #     env:
 #       ANTHROPIC_BASE_URL: http://localhost:18765
 #       ANTHROPIC_AUTH_TOKEN: anything
 #       ANTHROPIC_SMALL_FAST_MODEL: gemini-3.1-pro-preview
-#       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-#       CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1"
 #     model_env: ANTHROPIC_MODEL
-#     interface: stream-json
-#     prompt: stdin
 # gemini:
 #   backend: profile
 #   cli_profile: claude-gemini-proxy

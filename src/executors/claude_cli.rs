@@ -50,8 +50,31 @@ impl LlmExecutor for ClaudeCliExecutor {
         let full_prompt = format!("{system_prompt}\n\n{prompt}");
 
         let profile = &self.profile.profile;
-        let mut args = profile.args.clone();
+
+        // Build args: profile args first, then injected boilerplate, then effort.
+        let mut args: Vec<String> = profile.args.clone();
+
+        // Auto-inject Claude CLI boilerplate required for non-interactive
+        // structured output. Appended after profile args so tests (which use
+        // `sh -c script`) don't choke on unknown flags.
+        args.extend([
+            "-p".into(),
+            "--output-format".into(),
+            "stream-json".into(),
+            "--verbose".into(),
+            "--no-session-persistence".into(),
+            "--bare".into(),
+        ]);
+        if let Some(ref effort) = profile.effort {
+            args.push("--effort".into());
+            args.push(effort.clone());
+        }
         let mut env = profile.env.clone();
+        // Default env vars for programmatic use. Profile-level env overrides these.
+        env.entry("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into())
+            .or_insert_with(|| "1".into());
+        env.entry("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into())
+            .or_insert_with(|| "1".into());
         if let Some(model_env) = &profile.model_env {
             env.insert(model_env.clone(), model);
         }
@@ -613,6 +636,7 @@ mod tests {
                 env,
                 interface: CliProfileInterface::Text,
                 prompt,
+                effort: None,
                 model_env,
             },
         }
@@ -634,11 +658,12 @@ mod tests {
     #[test]
     fn executor_delivers_prompt_via_argument() {
         let profile = make_profile(
-            "sh",
+            "bash",
             vec![
                 "-c".to_string(),
-                "printf '%s\\n' \"$1\"".to_string(),
-                "sh".to_string(),
+                // Injected boilerplate args come before the prompt, so read the last arg.
+                r#"printf '%s\n' "${@: -1}""#.to_string(),
+                "bash".to_string(),
             ],
             std::collections::BTreeMap::new(),
             CliPromptMode::Argument,

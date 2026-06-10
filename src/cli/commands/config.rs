@@ -152,6 +152,7 @@ fn set_nested_key(node: &mut Value, key: &str, value: Value) -> anyhow::Result<(
 mod tests {
     use super::*;
     use crate::config::file::ConfigFile;
+    use crate::config::types::{CliProfileInterface, CliPromptMode};
     use serde_yaml::Value;
 
     fn mapping() -> Value {
@@ -214,8 +215,8 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_config_after_set_rejected() {
-        // Setting a value that produces an invalid config must be rejected.
+    fn test_incomplete_profile_gets_defaults() {
+        // A profile with only command set should get defaults for the rest.
         let mut doc = mapping();
         set_nested_key(
             &mut doc,
@@ -224,8 +225,12 @@ mod tests {
         )
         .unwrap();
         let out = serde_yaml::to_string(&doc).unwrap();
-        // Incomplete profile (missing required interface/prompt fields) should fail.
-        assert!(ConfigFile::parse(&out).is_err());
+        let cfg = ConfigFile::parse(&out).unwrap();
+        let profile = &cfg.cli_profiles["claude"];
+        assert_eq!(profile.command, "claude");
+        assert_eq!(profile.interface, CliProfileInterface::StreamJson);
+        assert_eq!(profile.prompt, CliPromptMode::Stdin);
+        assert_eq!(profile.effort, None);
     }
 
     #[test]

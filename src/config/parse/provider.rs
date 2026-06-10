@@ -321,6 +321,7 @@ mod tests {
                 env: BTreeMap::new(),
                 interface: CliProfileInterface::StreamJson,
                 prompt: CliPromptMode::Stdin,
+                effort: None,
                 model_env: None,
             },
         );
@@ -449,5 +450,4 @@ mod tests {
             "claude models should be enabled for executable profile-backed backends"
         );
     }
-
 }
