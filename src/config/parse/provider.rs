@@ -321,7 +321,6 @@ mod tests {
                 env: BTreeMap::new(),
                 interface: CliProfileInterface::StreamJson,
                 prompt: CliPromptMode::Stdin,
-                headless: true,
                 model_env: None,
             },
         );
@@ -451,22 +450,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_profile_backed_backend_with_non_headless_profile_filters_anthropic_models() {
-        let mut profiles = test_cli_profiles();
-        profiles.get_mut("claude").unwrap().headless = false;
-        let env = env_from(&[
-            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
-            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
-            ("OPENAI_API_KEY", "sk-key"),
-        ]);
-        let (config, _) = super::super::parse_config_with_cli_profiles(env, profiles).unwrap();
-        assert!(
-            !config
-                .allowed_models
-                .iter()
-                .any(|m| m.starts_with("claude"))
-        );
-        assert!(config.allowed_models.iter().any(|m| m.starts_with("gpt")));
-    }
 }

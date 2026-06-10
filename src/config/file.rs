@@ -751,7 +751,6 @@ cli_profiles:
       CLAUDE_CONFIG_DIR: /tmp/claude
     interface: stream-json
     prompt: stdin
-    headless: true
 "#,
         )
         .unwrap();
@@ -761,7 +760,6 @@ cli_profiles:
         assert_eq!(profile.env["CLAUDE_CONFIG_DIR"], "/tmp/claude");
         assert_eq!(profile.interface, CliProfileInterface::StreamJson);
         assert_eq!(profile.prompt, CliPromptMode::Stdin);
-        assert!(profile.headless);
     }
 
     #[test]

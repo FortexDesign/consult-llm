@@ -43,13 +43,6 @@ impl LlmExecutor for ClaudeCliExecutor {
             spool,
         } = req;
 
-        if !self.profile.profile.headless {
-            anyhow::bail!(
-                "Claude CLI executor requires headless: true in profile '{}'",
-                self.profile.name
-            );
-        }
-
         if thread_id.is_some() {
             anyhow::bail!("Claude CLI executor does not support thread resume");
         }
@@ -620,7 +613,6 @@ mod tests {
                 env,
                 interface: CliProfileInterface::Text,
                 prompt,
-                headless: true,
                 model_env,
             },
         }
@@ -699,21 +691,6 @@ mod tests {
             "should include exit code: {msg}"
         );
         assert!(msg.contains("oops"), "should include stderr: {msg}");
-    }
-
-    #[test]
-    fn executor_rejects_headless_false() {
-        let mut profile = make_stdin_profile("sh", vec!["-c".to_string(), "echo ok".to_string()]);
-        profile.profile.headless = false;
-        let executor = ClaudeCliExecutor::new(profile);
-        let err = executor
-            .execute(request("prompt", "system: test"))
-            .unwrap_err();
-        let msg = format!("{:#}", err);
-        assert!(
-            msg.contains("headless"),
-            "should mention headless requirement: {msg}"
-        );
     }
 
     #[test]

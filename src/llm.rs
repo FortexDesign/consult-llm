@@ -140,7 +140,6 @@ mod tests {
                 env: BTreeMap::new(),
                 interface: CliProfileInterface::Text,
                 prompt: CliPromptMode::Stdin,
-                headless: true,
                 model_env: None,
             },
         );

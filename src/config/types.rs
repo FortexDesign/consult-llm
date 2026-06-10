@@ -58,10 +58,7 @@ impl ProviderRuntimeConfig {
     pub fn has_executable_backend(&self) -> bool {
         match &self.backend {
             Backend::Api => self.api_key.is_some(),
-            Backend::Profile => self
-                .selected_cli_profile
-                .as_ref()
-                .is_some_and(|selected| selected.profile.headless),
+            Backend::Profile => self.selected_cli_profile.is_some(),
             _ => true,
         }
     }
@@ -106,8 +103,6 @@ pub struct CliProfile {
     pub env: std::collections::BTreeMap<String, String>,
     pub interface: CliProfileInterface,
     pub prompt: CliPromptMode,
-    #[serde(default)]
-    pub headless: bool,
     pub model_env: Option<String>,
 }
 

@@ -32,7 +32,6 @@ const TEMPLATE: &str = r#"# consult-llm user config
 #     model_env: ANTHROPIC_MODEL
 #     interface: stream-json
 #     prompt: stdin
-#     headless: true
 # gemini:
 #   backend: profile
 #   cli_profile: claude-gemini-proxy

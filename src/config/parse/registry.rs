@@ -179,43 +179,6 @@ mod tests {
     }
 
     #[test]
-    fn test_profile_cli_with_non_headless_profile_filters_models() {
-        use crate::config::types::{
-            CliProfile, CliProfileInterface, CliProfileType, CliPromptMode, SelectedCliProfile,
-        };
-
-        let models = vec!["claude-opus-4-7".into(), "gpt-5.2".into()];
-        let profile = CliProfile {
-            profile_type: CliProfileType::ClaudeCli,
-            command: "claude".to_string(),
-            args: Vec::new(),
-            env: Default::default(),
-            interface: CliProfileInterface::StreamJson,
-            prompt: CliPromptMode::Stdin,
-            headless: false,
-            model_env: None,
-        };
-        let mut providers = make_providers(&[
-            (Provider::Anthropic, None, Backend::Profile),
-            (Provider::OpenAI, Some("key"), Backend::Api),
-        ]);
-        providers
-            .get_mut(&Provider::Anthropic)
-            .unwrap()
-            .selected_cli_profile = Some(SelectedCliProfile {
-            name: "claude".to_string(),
-            profile,
-        });
-
-        let result = filter_by_availability(&models, &providers);
-        assert!(
-            !result.iter().any(|m| m.starts_with("claude")),
-            "claude models should not be enabled with a non-headless profile"
-        );
-        assert!(result.iter().any(|m| m.starts_with("gpt")));
-    }
-
-    #[test]
     fn test_filter_by_availability_unknown_prefix_rejected() {
         let models = vec!["custom-model".into()];
         let providers = make_providers(&[
