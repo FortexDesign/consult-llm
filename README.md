@@ -494,27 +494,17 @@ consult-llm config set gemini.backend cursor-cli
 
 If your prompts need shell commands in Cursor CLI ask mode, allow them in `~/.cursor/cli-config.json`.
 
-**Profile backend**: routes any model family through a named CLI profile. This is useful when a Claude Code CLI process proxies another provider, for example routing Gemini models through a local Anthropic-compatible proxy:
+**Profile backend**: routes any model family through a named CLI profile. This is useful when a Claude Code CLI process proxies another provider, for example routing Gemini models through a local [claude-code-proxy](https://github.com/raine/claude-code-proxy):
 
 ```yaml
 cli_profiles:
   claude-gemini-proxy:
-    type: claude-cli
     command: /Users/you/.local/bin/claude
-    args:
-      - -p
-      - --output-format
-      - stream-json
     env:
       ANTHROPIC_BASE_URL: http://localhost:18765
       ANTHROPIC_AUTH_TOKEN: anything
       ANTHROPIC_SMALL_FAST_MODEL: gemini-3.1-pro-preview
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
-      CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1"
     model_env: ANTHROPIC_MODEL
-    interface: stream-json
-    prompt: stdin
-    headless: true
 
 gemini:
   backend: profile
@@ -522,6 +512,8 @@ gemini:
 ```
 
 `model_env` sets the named environment variable to the requested model ID before launching the profile command. For Anthropic models, `anthropic.backend: claude-cli` is a compatibility alias for `profile`.
+
+> Fields like `type: claude-cli`, `command: claude`, `interface: stream-json`, `prompt: stdin` and flags like `-p`, `--output-format stream-json`, `--verbose`, `--no-session-persistence`, `--bare` are defaulted or auto-injected for `claude-cli` profiles. Only non-default choices need to be written. See [CLI backend profiles](#cli-backend-profiles) below.
 
 The example passes literal environment values and arguments to the CLI process. Prefer a user or project-local config for profiles with `env` values; committed project config rejects `cli_profiles.*.env` so secrets and machine-local paths do not leak.
 
@@ -544,14 +536,16 @@ consult-llm config set openai.opencode_provider openai
 
 The `profile` backend selects a named entry from the top-level `cli_profiles` map. Each profile defines how consult-llm launches the CLI process:
 
-- `type`: profile executor type (`claude-cli` is the only supported value today)
-- `command`: executable name or path
+- `type`: profile executor type (defaults to `claude-cli`, the only supported value today)
+- `command`: executable name or path (defaults to `claude`)
 - `args`: literal argv entries before the prompt
 - `env`: literal environment variables passed to the CLI process
+- `effort`: optional effort level (`low`, `medium`, `high`, `xhigh`, `max`); passed as `--effort <level>` to the CLI
 - `model_env`: optional env var name set to the requested model ID at launch time
-- `interface`: `text`, `json`, or `stream-json`
-- `prompt`: `stdin` or `argument`
-- `headless`: whether the profile is suitable for non-interactive runs
+- `interface`: output parsing strategy (`text`, `json`, or `stream-json`; defaults to `stream-json`)
+- `prompt`: how the prompt is delivered (`stdin` or `argument`; defaults to `stdin`)
+
+For `claude-cli` profiles, the executor auto-injects `-p`, `--output-format stream-json`, `--verbose`, `--no-session-persistence`, `--bare` and the env vars `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 Provider blocks reference a profile by name. For example, `gemini.backend: profile` with `gemini.cli_profile: claude-gemini-proxy` uses the profile shown above. For Anthropic, `anthropic.backend: claude-cli` is a compatibility alias for `profile`.
 
