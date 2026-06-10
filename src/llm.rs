@@ -5,7 +5,7 @@ use crate::config::types::CliProfileType;
 use crate::config::{Backend, Config};
 use crate::executors::anthropic_api::AnthropicApiExecutor;
 use crate::executors::api::ApiExecutor;
-use crate::executors::claude_cli::ClaudeCliExecutor;
+use crate::executors::claude_cli::{ClaudeCliConfig, ClaudeCliExecutor};
 use crate::executors::codex_cli::CodexCliExecutor;
 use crate::executors::cursor_cli::CursorCliExecutor;
 use crate::executors::gemini_cli::GeminiCliExecutor;
@@ -98,6 +98,19 @@ impl ExecutorProvider {
                 cfg.codex_extra_args.clone(),
             )),
             Backend::GeminiCli => Arc::new(GeminiCliExecutor::new(cfg.gemini_extra_args.clone())),
+            Backend::ClaudeCli => {
+                use crate::config::types::{CliProfileInterface, CliPromptMode};
+                let config = ClaudeCliConfig {
+                    command: "claude".to_string(),
+                    args: cfg.claude_extra_args.clone(),
+                    env: std::collections::BTreeMap::new(),
+                    interface: CliProfileInterface::StreamJson,
+                    prompt: CliPromptMode::Stdin,
+                    effort: None,
+                    model_env: None,
+                };
+                Arc::new(ClaudeCliExecutor::new(config))
+            }
             Backend::CursorCli => {
                 Arc::new(CursorCliExecutor::new(cfg.codex_reasoning_effort.clone()))
             }
@@ -112,7 +125,18 @@ impl ExecutorProvider {
                     )
                 })?;
                 match selected.profile.profile_type {
-                    CliProfileType::ClaudeCli => Arc::new(ClaudeCliExecutor::new(selected.clone())),
+                    CliProfileType::ClaudeCli => {
+                        let config = ClaudeCliConfig {
+                            command: selected.profile.command.clone(),
+                            args: selected.profile.args.clone(),
+                            env: selected.profile.env.clone(),
+                            interface: selected.profile.interface.clone(),
+                            prompt: selected.profile.prompt.clone(),
+                            effort: selected.profile.effort.clone(),
+                            model_env: selected.profile.model_env.clone(),
+                        };
+                        Arc::new(ClaudeCliExecutor::new(config))
+                    }
                 }
             }
         };
