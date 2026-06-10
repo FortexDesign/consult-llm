@@ -22,7 +22,7 @@
 `consult-llm` is a tool for getting a second opinion from another AI model,
 right inside your existing agent workflow. Use it to plan architecture,
 review changes, debate approaches, or get unstuck on tricky bugs. It supports GPT-5.5, Gemini 3.1 Pro, Claude Opus 4.7,
-DeepSeek V4 Pro, MiniMax M2.7, and Grok 4.3, with API and local CLI backends,
+DeepSeek V4 Pro, MiniMax M2.7, and Grok 4.3, along with any `openrouter/*` model, with API and local CLI backends,
 multi-turn threads, git diff context, web-mode clipboard export, and a live monitor TUI.
 
 ## Why a second opinion?
@@ -420,7 +420,7 @@ consult-llm update                    # self-update the binary
 
 `consult-llm` separates **model families** from **backends**.
 
-A **model family** is what you ask for: `gemini`, `openai`, `deepseek`, `minimax`, `anthropic`, or `grok`.
+A **model family** is what you ask for: `gemini`, `openai`, `deepseek`, `minimax`, `anthropic`, `grok`, or `openrouter`.
 
 A **backend** is how `consult-llm` reaches that model family:
 
@@ -435,6 +435,7 @@ A **backend** is how `consult-llm` reaches that model family:
 | MiniMax      | yes           | `opencode`, `profile`                          | `MINIMAX_API_KEY`   |
 | Anthropic    | yes           | `profile`, `claude-cli`, `cursor-cli`          | `ANTHROPIC_API_KEY` |
 | Grok         | yes           | `cursor-cli`, `profile`                        | `XAI_API_KEY`       |
+| OpenRouter   | yes           | `opencode`, `profile`                          | `OPENROUTER_API_KEY` |
 
 ### API backend
 
@@ -531,6 +532,36 @@ consult-llm config set minimax.backend opencode
 consult-llm config set opencode.default_provider copilot
 consult-llm config set openai.opencode_provider openai
 ```
+
+**OpenRouter**: routes `openrouter/*` models through OpenCode:
+
+```bash
+consult-llm config set openrouter.backend opencode
+```
+
+No API key needed -- authentication is handled by your OpenCode installation.
+Any `openrouter/*` model ID available in OpenCode works automatically. Add it
+to your config:
+
+```yaml
+openrouter:
+  backend: opencode
+
+extra_models:
+  - openrouter/xiaomi/mimo-v2.5-pro
+
+allowed_models:
+  - gpt-5.5
+  - gemini-3.1-pro-preview
+  - openrouter/xiaomi/mimo-v2.5-pro
+```
+
+The `extra_models` entry adds the model to the catalog; `allowed_models` must
+also list it since it acts as an allowlist. Any `openrouter/*` model ID from
+OpenCode works -- add them to both lists.
+
+The `openrouter` selector resolves to the first available enabled model (e.g.
+`openrouter/auto` when no specific model is configured directly).
 
 ### CLI backend profiles
 
@@ -764,6 +795,7 @@ Environment variables override config file values.
 | `ANTHROPIC_API_KEY`                      | Anthropic API key                                                                      |                                                   |                                          |
 | `DEEPSEEK_API_KEY`                       | DeepSeek API key                                                                       |                                                   |                                          |
 | `MINIMAX_API_KEY`                        | MiniMax API key                                                                        |                                                   |                                          |
+| `OPENROUTER_API_KEY`                    | OpenRouter API key                                                                     |                                                   |                                          |
 | `XAI_API_KEY`                            | xAI API key for Grok models                                                            |                                                   |                                          |
 | `CONSULT_LLM_DEFAULT_MODEL`              | Model or selector to use for single-response calls when `-m` is omitted                | selector or exact model ID                        | first available                          |
 | `CONSULT_LLM_DEFAULT_MODELS`             | Comma-separated ordered multi-model defaults when `-m` is omitted; duplicates preserved | selectors or exact model IDs                      | empty (falls through to default_model then fallback) |
@@ -773,6 +805,7 @@ Environment variables override config file values.
 | `CONSULT_LLM_MINIMAX_BACKEND`            | Backend for MiniMax models                                                             | `api` `opencode` `profile`                        | `api`                                    |
 | `CONSULT_LLM_ANTHROPIC_BACKEND`          | Backend for Anthropic models                                                           | `api` `profile` `claude-cli` `cursor-cli`         | `api`                                    |
 | `CONSULT_LLM_GROK_BACKEND`               | Backend for Grok models                                                                | `api` `cursor-cli` `profile`                      | `api`                                    |
+| `CONSULT_LLM_OPENROUTER_BACKEND`         | Backend for OpenRouter models                                                          | `api` `opencode` `profile`                        | `api`                                    |
 | `CONSULT_LLM_ALLOWED_MODELS`             | Comma-separated allowlist; restricts which models are enabled                          | model IDs                                         | all                                      |
 | `CONSULT_LLM_EXTRA_MODELS`               | Comma-separated extra model IDs to add to the catalog                                  | model IDs                                         |                                          |
 | `CONSULT_LLM_CODEX_REASONING_EFFORT`     | Reasoning effort for Codex CLI backend                                                 | `none` `minimal` `low` `medium` `high` `xhigh`    | `high`                                   |
@@ -785,10 +818,12 @@ Environment variables override config file values.
 | `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`       | CLI profile name when `deepseek.backend` is `profile`                                  | profile name                                       |                                          |
 | `CONSULT_LLM_MINIMAX_CLI_PROFILE`        | CLI profile name when `minimax.backend` is `profile`                                   | profile name                                       |                                          |
 | `CONSULT_LLM_GROK_CLI_PROFILE`           | CLI profile name when `grok.backend` is `profile`                                      | profile name                                       |                                          |
+| `CONSULT_LLM_OPENROUTER_CLI_PROFILE`     | CLI profile name when `openrouter.backend` is `profile`                                | profile name                                       |                                          |
 | `CONSULT_LLM_OPENCODE_OPENAI_PROVIDER`   | OpenCode provider for OpenAI models                                                    | provider name                                     | `openai`                                 |
 | `CONSULT_LLM_OPENCODE_GEMINI_PROVIDER`   | OpenCode provider for Gemini models                                                    | provider name                                     | `google`                                 |
 | `CONSULT_LLM_OPENCODE_DEEPSEEK_PROVIDER` | OpenCode provider for DeepSeek models                                                  | provider name                                     | `deepseek`                               |
 | `CONSULT_LLM_OPENCODE_MINIMAX_PROVIDER`  | OpenCode provider for MiniMax models                                                   | provider name                                     | `minimax`                                |
+| `CONSULT_LLM_OPENCODE_OPENROUTER_PROVIDER` | OpenCode provider for OpenRouter models                                              | provider name                                     | `openrouter`                             |
 | `CONSULT_LLM_SYSTEM_PROMPT_PATH`         | Path to a custom system prompt file                                                    | file path                                         | `~/.config/consult-llm/SYSTEM_PROMPT.md` |
 | `CONSULT_LLM_NO_UPDATE_CHECK`            | Disable background update checks                                                       | `1` `true` `yes`                                  |                                          |
 
