@@ -310,8 +310,8 @@ pub static PROVIDERS: &[ProviderSpec] = &[
             extra_body: None,
             think_tags: None,
         }),
-        builtin_models: &["openrouter/xiaomi/mimo-v2.5-pro"],
-        selector_priorities: &["openrouter/xiaomi/mimo-v2.5-pro"],
+        builtin_models: &["openrouter/auto"],
+        selector_priorities: &["openrouter/auto"],
         api_key_env: "OPENROUTER_API_KEY",
         backend_env: "CONSULT_LLM_OPENROUTER_BACKEND",
         legacy_backend_env: None,
@@ -435,7 +435,7 @@ mod tests {
             ("MiniMax-M2.7", Provider::MiniMax),
             ("claude-opus-4-7", Provider::Anthropic),
             ("grok-4.3", Provider::Grok),
-            ("openrouter/xiaomi/mimo-v2.5-pro", Provider::OpenRouter),
+            ("openrouter/auto", Provider::OpenRouter),
         ];
 
         let builtins = all_builtin_models();
@@ -456,6 +456,23 @@ mod tests {
             let got =
                 Provider::from_model(model).unwrap_or_else(|| panic!("no provider for {model:?}"));
             assert_eq!(got, *want, "provider mismatch for {model:?}");
+        }
+    }
+
+    /// Any openrouter/* model ID routes to OpenRouter via the prefix.
+    #[test]
+    fn openrouter_prefix_routes_to_openrouter() {
+        for model in &[
+            "openrouter/xiaomi/mimo-v2.5-pro",
+            "openrouter/google/gemini-2.0-flash-001",
+            "openrouter/anthropic/claude-sonnet-4-20250514",
+            "openrouter/openai/gpt-4o-mini",
+        ] {
+            assert_eq!(
+                Provider::from_model(model),
+                Some(Provider::OpenRouter),
+                "expected OpenRouter for {model}"
+            );
         }
     }
 

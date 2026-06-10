@@ -119,9 +119,9 @@ impl LlmExecutor for OpenCodeCliExecutor {
             format!("{system_prompt}\n\n{message}")
         };
 
-        let opencode_model = if model.contains('/') {
-            // Model already includes a provider prefix
-            // (e.g. "openrouter/xiaomi/mimo-v2.5-pro").
+        let opencode_model = if model.starts_with(&format!("{}/", self.provider_prefix)) {
+            // Model already includes the provider prefix
+            // (e.g. "openrouter/xiaomi/mimo-v2.5-pro" with provider_prefix "openrouter").
             // Pass through as-is to avoid double-prefixing.
             model.to_string()
         } else {
