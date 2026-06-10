@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.17 (2026-06-10)
+
+- New OpenRouter provider: `openrouter/*` models are now supported through both API (OpenAI-compatible) and OpenCode backends. Use `-m openrouter/auto` or any specific OpenRouter model ID
+- Usage summary now renders as a single token line at the end of the detail view instead of appearing inline between content blocks
+
 ## v3.0.16 (2026-06-10)
 
 - Claude CLI profiles are now much simpler to configure: `command` defaults to `claude`, `interface` to `stream-json`, and `prompt` to `stdin`. Required boilerplate flags and env vars are auto-injected, so profiles only need the values that differ from defaults
