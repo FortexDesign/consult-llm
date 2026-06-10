@@ -149,6 +149,7 @@ fn backend_binary(backend: &str) -> Option<&'static str> {
         "gemini-cli" => Some("gemini"),
         "cursor-cli" => Some("cursor-agent"),
         "opencode" => Some("opencode"),
+        "claude-cli" => Some("claude"),
         _ => None,
     }
 }
@@ -170,9 +171,8 @@ fn profile_command_dependency(command: &str) -> (bool, String) {
     }
 }
 
-fn is_profile_backend(spec: &crate::models::ProviderSpec, backend: &str) -> bool {
+fn is_profile_backend(backend: &str) -> bool {
     backend == "profile"
-        || (spec.provider == crate::models::Provider::Anthropic && backend == "claude-cli")
 }
 
 fn profile_backend_dependency(
@@ -181,7 +181,7 @@ fn profile_backend_dependency(
     profile_name: Option<&str>,
     cli_profiles: &BTreeMap<String, CliProfile>,
 ) -> Option<(bool, String)> {
-    if !is_profile_backend(spec, backend) {
+    if !is_profile_backend(backend) {
         return None;
     }
     let Some(profile_name) = profile_name else {
@@ -214,6 +214,7 @@ fn config_keys() -> Vec<&'static str> {
         "CONSULT_LLM_SYSTEM_PROMPT_PATH",
         "CONSULT_LLM_NO_UPDATE_CHECK",
         "CONSULT_LLM_OPENCODE_PROVIDER",
+        "CONSULT_LLM_CLAUDE_EXTRA_ARGS",
     ];
     for spec in PROVIDERS {
         keys.push(spec.backend_env);
@@ -236,6 +237,7 @@ fn semantic_name(env_key: &str) -> String {
         "CONSULT_LLM_EXTRA_MODELS" => "extra_models".into(),
         // Historical label predating the registry-driven view; kept stable.
         "CONSULT_LLM_CODEX_REASONING_EFFORT" => "codex.reasoning_effort".into(),
+        "CONSULT_LLM_CLAUDE_EXTRA_ARGS" => "claude.extra_args".into(),
         "CONSULT_LLM_SYSTEM_PROMPT_PATH" => "system_prompt_path".into(),
         "CONSULT_LLM_NO_UPDATE_CHECK" => "no_update_check".into(),
         "CONSULT_LLM_OPENCODE_PROVIDER" => "opencode.provider".into(),
@@ -706,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_backend_dependency_reports_selected_profile_command_for_claude_cli_alias() {
+    fn profile_backend_dependency_reports_selected_profile_command_for_anthropic_profile_backend() {
         let mut profiles = BTreeMap::new();
         profiles.insert(
             "claude".to_string(),
@@ -715,7 +717,7 @@ mod tests {
 
         let (ok, detail) = profile_backend_dependency(
             Provider::Anthropic.spec(),
-            "claude-cli",
+            "profile",
             Some("claude"),
             &profiles,
         )
@@ -726,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_backend_dependency_reports_selected_profile_command_for_profile_backend() {
+    fn profile_backend_dependency_reports_selected_profile_command_for_gemini_profile_backend() {
         let mut profiles = BTreeMap::new();
         profiles.insert(
             "claude".to_string(),
@@ -757,7 +759,7 @@ mod tests {
 
         let (ok, detail) = profile_backend_dependency(
             Provider::Anthropic.spec(),
-            "claude-cli",
+            "profile",
             Some("claude"),
             &profiles,
         )
