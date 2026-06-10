@@ -34,16 +34,11 @@ pub fn parse_opencode_line(line: &str) -> StreamEvents {
 
     match event.get("type").and_then(|t| t.as_str()) {
         Some("step_start") => {
-            let mut events = smallvec![ParsedStreamEvent::Thinking {
-                text: String::new(),
-            }];
+            let mut events: StreamEvents = smallvec![];
             if let Some(sid) = event.get("sessionID").and_then(|v| v.as_str()) {
-                events.insert(
-                    0,
-                    ParsedStreamEvent::SessionStarted {
-                        id: sid.to_string(),
-                    },
-                );
+                events.push(ParsedStreamEvent::SessionStarted {
+                    id: sid.to_string(),
+                });
             }
             events
         }
@@ -172,11 +167,10 @@ mod tests {
         let events = parse_opencode_line(
             r#"{"type":"step_start","timestamp":1234,"sessionID":"ses_abc123","part":{"type":"step-start"}}"#,
         );
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 1);
         assert!(
             matches!(&events[0], ParsedStreamEvent::SessionStarted { id } if id == "ses_abc123")
         );
-        assert!(matches!(&events[1], ParsedStreamEvent::Thinking { text } if text.is_empty()));
     }
 
     #[test]

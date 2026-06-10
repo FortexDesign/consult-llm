@@ -73,6 +73,8 @@ pub(super) fn normalize_events(events: &[ParsedStreamEvent]) -> Vec<RenderedBloc
     let mut blocks: Vec<RenderedBlock> = Vec::new();
     let mut tool_indices: HashMap<&str, usize> = HashMap::new();
     let mut pending_files: Option<Vec<String>> = None;
+    let mut total_prompt_tokens: u64 = 0;
+    let mut total_completion_tokens: u64 = 0;
 
     for event in events {
         match event {
@@ -144,13 +146,20 @@ pub(super) fn normalize_events(events: &[ParsedStreamEvent]) -> Vec<RenderedBloc
                 prompt_tokens,
                 completion_tokens,
             } => {
-                blocks.push(RenderedBlock::Usage {
-                    prompt_tokens: *prompt_tokens,
-                    completion_tokens: *completion_tokens,
-                });
+                // Accumulate Usage totals so the token separator renders
+                // once at the end rather than inline between content blocks.
+                total_prompt_tokens += prompt_tokens;
+                total_completion_tokens += completion_tokens;
             }
             _ => {}
         }
+    }
+
+    if total_prompt_tokens > 0 || total_completion_tokens > 0 {
+        blocks.push(RenderedBlock::Usage {
+            prompt_tokens: total_prompt_tokens,
+            completion_tokens: total_completion_tokens,
+        });
     }
 
     blocks
