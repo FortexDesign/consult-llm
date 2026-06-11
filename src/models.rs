@@ -559,12 +559,12 @@ mod tests {
             if spec.provider == Provider::Anthropic {
                 assert!(
                     spec.allowed_backends.contains(&"claude-cli"),
-                    "anthropic must allow claude-cli compatibility alias"
+                    "anthropic must allow claude-cli backend"
                 );
             } else {
                 assert!(
                     !spec.allowed_backends.contains(&"claude-cli"),
-                    "claude-cli alias must be anthropic-only for {:?}",
+                    "claude-cli backend must be anthropic-only for {:?}",
                     spec.id
                 );
             }

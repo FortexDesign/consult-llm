@@ -107,7 +107,7 @@ impl ExecutorProvider {
                     interface: CliProfileInterface::StreamJson,
                     prompt: CliPromptMode::Stdin,
                     effort: None,
-                    model_env: None,
+                    model_env: Some("ANTHROPIC_MODEL".to_string()),
                 };
                 Arc::new(ClaudeCliExecutor::new(config))
             }
@@ -181,10 +181,7 @@ mod tests {
 
     #[test]
     fn test_claude_cli_executor_is_created() {
-        let env = env_from(&[
-            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
-            ("CONSULT_LLM_ANTHROPIC_CLI_PROFILE", "claude"),
-        ]);
+        let env = env_from(&[("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli")]);
         let (config, _) = parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
         let provider = ExecutorProvider::new(Arc::new(config));
         let executor = provider

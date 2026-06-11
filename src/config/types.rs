@@ -55,7 +55,6 @@ pub struct ProviderRuntimeConfig {
 
 impl ProviderRuntimeConfig {
     /// Returns true if this provider has an available executor for its backend.
-    /// Returns true if this provider has an available executor for its backend.
     /// For API backends this means an API key is set. For profile-backed backends
     /// it means a matching CLI profile is selected. Built-in CLI backends always
     /// have an executor.

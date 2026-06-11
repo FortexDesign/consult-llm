@@ -214,7 +214,6 @@ fn config_keys() -> Vec<&'static str> {
         "CONSULT_LLM_SYSTEM_PROMPT_PATH",
         "CONSULT_LLM_NO_UPDATE_CHECK",
         "CONSULT_LLM_OPENCODE_PROVIDER",
-        "CONSULT_LLM_CLAUDE_EXTRA_ARGS",
     ];
     for spec in PROVIDERS {
         keys.push(spec.backend_env);
@@ -237,7 +236,6 @@ fn semantic_name(env_key: &str) -> String {
         "CONSULT_LLM_EXTRA_MODELS" => "extra_models".into(),
         // Historical label predating the registry-driven view; kept stable.
         "CONSULT_LLM_CODEX_REASONING_EFFORT" => "codex.reasoning_effort".into(),
-        "CONSULT_LLM_CLAUDE_EXTRA_ARGS" => "claude.extra_args".into(),
         "CONSULT_LLM_SYSTEM_PROMPT_PATH" => "system_prompt_path".into(),
         "CONSULT_LLM_NO_UPDATE_CHECK" => "no_update_check".into(),
         "CONSULT_LLM_OPENCODE_PROVIDER" => "opencode.provider".into(),

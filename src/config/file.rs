@@ -165,7 +165,7 @@ where
         .map_err(|err| E::custom(format!("invalid value for `{field}`: {err}")))
 }
 
-fn is_profile_backend(_provider: Provider, backend: &str) -> bool {
+fn is_profile_backend(backend: &str) -> bool {
     backend == "profile"
 }
 
@@ -206,7 +206,7 @@ fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<
             ));
         }
         if let Some(backend) = block.backend.as_deref()
-            && !is_profile_backend(provider, backend)
+            && !is_profile_backend(backend)
         {
             return Err(format!(
                 "unsupported provider field `cli_profile` for provider `{}` with backend `{backend}`. expected one of: profile",
