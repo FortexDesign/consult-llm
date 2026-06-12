@@ -67,10 +67,17 @@ fn parse_provider_config(
     };
 
     // 2. Parse backend string into Backend variant
-    let backend = match resolved_backend_str {
+    let mut backend = match resolved_backend_str {
         Some(ref raw) => parse_backend(raw, spec)?,
         None => Backend::Api,
     };
+
+    // Migration: old "claude-cli" alias semantics - when cli_profile is
+    // set alongside claude-cli, treat as Backend::Profile for backward
+    // compatibility. Pure "claude-cli" with no profile uses the native backend.
+    if backend == Backend::ClaudeCli && env(spec.cli_profile_env).is_some() {
+        backend = Backend::Profile;
+    }
 
     // 3. API key
     let api_key = env(spec.api_key_env);

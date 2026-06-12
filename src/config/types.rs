@@ -94,6 +94,7 @@ pub enum ClaudeEffort {
     Low,
     Medium,
     High,
+    #[serde(alias = "xhigh", alias = "extra-high")]
     XHigh,
     Max,
 }

@@ -6,7 +6,7 @@ use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{CliOutputParser, run_cli_executor_with_env};
 
-use crate::config::types::{CliProfileInterface, CliPromptMode};
+use crate::config::types::{ClaudeEffort, CliProfileInterface, CliPromptMode};
 
 /// Configuration for a claude-cli executor, decoupled from the profile system.
 /// When the backend is `ClaudeCli` (native), this is constructed with defaults.
@@ -19,7 +19,7 @@ pub struct ClaudeCliConfig {
     pub env: BTreeMap<String, String>,
     pub interface: CliProfileInterface,
     pub prompt: CliPromptMode,
-    pub effort: Option<String>,
+    pub effort: Option<ClaudeEffort>,
     pub model_env: Option<String>,
 }
 
@@ -89,7 +89,9 @@ impl LlmExecutor for ClaudeCliExecutor {
             ("--bare", None),
         ];
         for (flag, value) in boilerplate_flags {
-            if args.iter().any(|a| a == flag) {
+            // Always inject --output-format to ensure the parser and CLI agree
+            // on the output format, regardless of user-supplied extra args.
+            if flag != &"--output-format" && args.iter().any(|a| a == flag) {
                 continue;
             }
             args.push(flag.to_string());
