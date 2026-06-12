@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.0.19 (2026-06-12)
+
+- OpenCode CLI runs now show tool calls and tool errors in the monitor detail view.
+
 ## v3.0.18 (2026-06-10)
 
 - Claude CLI profiles now support thread resume, letting you continue conversations across multiple turns through the `--resume` session mechanism. Previously thread resume was unsupported for Claude CLI; now it works like the other CLI backends
