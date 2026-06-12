@@ -55,36 +55,60 @@ impl LlmExecutor for ClaudeCliExecutor {
 
         let profile = &self.profile.profile;
 
-        // Build args: profile args first, then injected boilerplate, then effort.
         let mut args: Vec<String> = profile.args.clone();
+        let mut env = profile.env.clone();
 
-        // Auto-inject Claude CLI boilerplate required for non-interactive
-        // structured output. Appended after profile args so tests (which use
-        // `sh -c script`) don't choke on unknown flags.
-        args.extend([
-            "-p".into(),
-            "--output-format".into(),
-            "stream-json".into(),
-            "--verbose".into(),
-            "--bare".into(),
-        ]);
+        // Auto-inject boilerplate flags, skipping any already present in
+        // profile args to avoid duplication.
+        let output_format = match profile.interface {
+            CliProfileInterface::StreamJson => "stream-json",
+            CliProfileInterface::Json => "json",
+            CliProfileInterface::Text => "text",
+        };
+        let boilerplate_flags: &[(&str, Option<&str>)] = &[
+            ("-p", None),
+            ("--output-format", Some(output_format)),
+            ("--verbose", None),
+            ("--bare", None),
+        ];
+        for (flag, value) in boilerplate_flags {
+            if args.iter().any(|a| a == flag) {
+                continue;
+            }
+            args.push(flag.to_string());
+            if let Some(v) = value {
+                args.push(v.to_string());
+            }
+        }
+
         if let Some(t) = tid {
             args.push("--resume".into());
             args.push(t.to_string());
         }
-        if let Some(ref effort) = profile.effort {
+
+        if let Some(effort) = &profile.effort
+            && !args.iter().any(|a| a == "--effort")
+        {
             args.push("--effort".into());
-            args.push(effort.clone());
+            args.push(effort.to_string());
         }
-        let mut env = profile.env.clone();
+
+        // Route the requested model to the CLI.
+        if let Some(model_env) = &profile.model_env {
+            env.insert(model_env.clone(), model);
+        } else if !args.iter().any(|a| a == "--model") {
+            args.push("--model".into());
+            args.push(model);
+        }
+
         // Default env vars for programmatic use. Profile-level env overrides these.
         env.entry("CLAUDE_CODE_DISABLE_AUTO_MEMORY".into())
             .or_insert_with(|| "1".into());
         env.entry("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into())
             .or_insert_with(|| "1".into());
-        if let Some(model_env) = &profile.model_env {
-            env.insert(model_env.clone(), model);
-        }
+        env.entry("CLAUDE_CODE_DISABLE_UPDATE_CHECK".into())
+            .or_insert_with(|| "1".into());
+        env.entry("NO_COLOR".into()).or_insert_with(|| "1".into());
 
         let stdin_prompt = match profile.prompt {
             CliPromptMode::Stdin => Some(full_prompt),
