@@ -1,4 +1,4 @@
-use super::stream::{ParsedStreamEvent, StreamEvents};
+use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{append_file_refs, run_cli_executor};
 
@@ -53,6 +53,7 @@ pub fn parse_opencode_line(line: &str) -> StreamEvents {
                 smallvec![]
             }
         }
+        Some("tool_use") => parse_tool_use(&event),
         Some("step_finish") => {
             if let Some(part) = event.get("part")
                 && let Some(tokens) = part.get("tokens")
@@ -84,6 +85,89 @@ pub fn parse_opencode_line(line: &str) -> StreamEvents {
         }
         _ => smallvec![],
     }
+}
+
+fn parse_tool_use(event: &serde_json::Value) -> StreamEvents {
+    use smallvec::smallvec;
+
+    let Some(part) = event.get("part") else {
+        return smallvec![];
+    };
+    if part.get("type").and_then(|t| t.as_str()) != Some("tool") {
+        return smallvec![];
+    }
+
+    let Some(state) = part.get("state") else {
+        return smallvec![];
+    };
+    let status = state.get("status").and_then(|s| s.as_str());
+    let call_id = part
+        .get("callID")
+        .and_then(|id| id.as_str())
+        .or_else(|| part.get("id").and_then(|id| id.as_str()))
+        .unwrap_or("tool")
+        .to_string();
+
+    match status {
+        Some("running") => smallvec![tool_started_event(part, state, call_id)],
+        Some("completed") => smallvec![
+            tool_started_event(part, state, call_id.clone()),
+            ParsedStreamEvent::ToolFinished {
+                call_id,
+                success: true,
+                error: None,
+            }
+        ],
+        Some("error") => smallvec![
+            tool_started_event(part, state, call_id.clone()),
+            ParsedStreamEvent::ToolFinished {
+                call_id,
+                success: false,
+                error: state
+                    .get("error")
+                    .and_then(|error| error.as_str())
+                    .map(|error| error.to_string()),
+            }
+        ],
+        _ => smallvec![],
+    }
+}
+
+fn tool_started_event(
+    part: &serde_json::Value,
+    state: &serde_json::Value,
+    call_id: String,
+) -> ParsedStreamEvent {
+    let name = part
+        .get("tool")
+        .and_then(|name| name.as_str())
+        .unwrap_or("tool");
+    ParsedStreamEvent::ToolStarted {
+        call_id,
+        label: tool_label(name, tool_detail(state).as_deref()),
+    }
+}
+
+fn tool_detail(state: &serde_json::Value) -> Option<String> {
+    let input = state.get("input")?;
+    for key in [
+        "filePath",
+        "file_path",
+        "path",
+        "pattern",
+        "command",
+        "cmd",
+        "url",
+        "query",
+        "description",
+    ] {
+        if let Some(value) = input.get(key).and_then(|value| value.as_str())
+            && !value.is_empty()
+        {
+            return Some(value.to_string());
+        }
+    }
+    None
 }
 
 impl LlmExecutor for OpenCodeCliExecutor {
@@ -185,6 +269,45 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_opencode_line_tool_started() {
+        let events = parse_opencode_line(
+            r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"bash","state":{"status":"running","input":{"command":"cargo test"},"time":{"start":123}}}}"#,
+        );
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(&events[0], ParsedStreamEvent::ToolStarted { call_id, label } if call_id == "call_1" && label == "bash cargo test")
+        );
+    }
+
+    #[test]
+    fn test_parse_opencode_line_tool_finished_success() {
+        let events = parse_opencode_line(
+            r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"bash","state":{"status":"completed","input":{"command":"cargo test"},"output":"ok","title":"cargo test","metadata":{},"time":{"start":123,"end":456}}}}"#,
+        );
+        assert_eq!(events.len(), 2);
+        assert!(
+            matches!(&events[0], ParsedStreamEvent::ToolStarted { call_id, label } if call_id == "call_1" && label == "bash cargo test")
+        );
+        assert!(
+            matches!(&events[1], ParsedStreamEvent::ToolFinished { call_id, success, error } if call_id == "call_1" && *success && error.is_none())
+        );
+    }
+
+    #[test]
+    fn test_parse_opencode_line_tool_finished_error() {
+        let events = parse_opencode_line(
+            r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"bash","state":{"status":"error","input":{"command":"cargo test"},"error":"exit 1","time":{"start":123,"end":456}}}}"#,
+        );
+        assert_eq!(events.len(), 2);
+        assert!(
+            matches!(&events[0], ParsedStreamEvent::ToolStarted { call_id, label } if call_id == "call_1" && label == "bash cargo test")
+        );
+        assert!(
+            matches!(&events[1], ParsedStreamEvent::ToolFinished { call_id, success, error } if call_id == "call_1" && !*success && error.as_deref() == Some("exit 1"))
+        );
+    }
+
+    #[test]
     fn test_parse_opencode_line_step_finish() {
         let events = parse_opencode_line(
             r#"{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop","tokens":{"input":1000,"output":50,"reasoning":10}}}"#,
@@ -228,6 +351,8 @@ mod tests {
         );
         let lines = vec![
             r#"{"type":"step_start","sessionID":"ses_abc","part":{"type":"step-start"}}"#,
+            r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"read","state":{"status":"running","input":{"filePath":"src/main.rs"},"time":{"start":123}}}}"#,
+            r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"read","state":{"status":"completed","input":{"filePath":"src/main.rs"},"output":"fn main() {}","title":"src/main.rs","metadata":{},"time":{"start":123,"end":456}}}}"#,
             r#"{"type":"text","sessionID":"ses_abc","part":{"type":"text","text":"4"}}"#,
             r#"{"type":"step_finish","sessionID":"ses_abc","part":{"type":"step-finish","reason":"stop","tokens":{"input":15000,"output":1,"reasoning":0}}}"#,
         ];
