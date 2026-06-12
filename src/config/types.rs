@@ -99,15 +99,21 @@ pub enum ClaudeEffort {
     Max,
 }
 
+impl ClaudeEffort {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ClaudeEffort::Low => "low",
+            ClaudeEffort::Medium => "medium",
+            ClaudeEffort::High => "high",
+            ClaudeEffort::XHigh => "xhigh",
+            ClaudeEffort::Max => "max",
+        }
+    }
+}
+
 impl std::fmt::Display for ClaudeEffort {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ClaudeEffort::Low => write!(f, "low"),
-            ClaudeEffort::Medium => write!(f, "medium"),
-            ClaudeEffort::High => write!(f, "high"),
-            ClaudeEffort::XHigh => write!(f, "xhigh"),
-            ClaudeEffort::Max => write!(f, "max"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
@@ -161,6 +167,7 @@ pub struct Config {
     pub default_model: Option<String>,
     pub default_models: Vec<String>,
     pub codex_reasoning_effort: String,
+    pub claude_reasoning_effort: Option<ClaudeEffort>,
     pub codex_extra_args: Vec<String>,
     pub gemini_extra_args: Vec<String>,
     pub claude_extra_args: Vec<String>,
@@ -226,6 +233,7 @@ pub enum ConfigError {
         count: usize,
     },
     InvalidCodexReasoningEffort(String),
+    InvalidClaudeReasoningEffort(String),
     InvalidExtraArgs {
         env_var: String,
         raw: String,
@@ -302,6 +310,10 @@ impl fmt::Display for ConfigError {
             ConfigError::InvalidCodexReasoningEffort(effort) => write!(
                 f,
                 "Invalid environment variables:\n  codexReasoningEffort: Invalid enum value. Expected 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh', received '{effort}'"
+            ),
+            ConfigError::InvalidClaudeReasoningEffort(effort) => write!(
+                f,
+                "Invalid environment variables:\n  claudeReasoningEffort: Invalid enum value. Expected 'low' | 'medium' | 'high' | 'x-high' | 'xhigh' | 'extra-high' | 'max', received '{effort}'"
             ),
             ConfigError::InvalidExtraArgs {
                 env_var,

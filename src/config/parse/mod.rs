@@ -35,6 +35,7 @@ pub fn parse_config_with_cli_profiles(
 
     let api_idle_timeout = env::resolve_api_idle_timeout(&env);
     let codex_reasoning_effort = env::resolve_codex_reasoning_effort(&env)?;
+    let claude_reasoning_effort = env::resolve_claude_reasoning_effort(&env)?;
     let codex_extra_args = parse_extra_args(
         env("CONSULT_LLM_CODEX_EXTRA_ARGS").as_deref(),
         "CONSULT_LLM_CODEX_EXTRA_ARGS",
@@ -53,6 +54,7 @@ pub fn parse_config_with_cli_profiles(
         default_model: resolved_default.clone(),
         default_models: resolved_default_models.clone(),
         codex_reasoning_effort,
+        claude_reasoning_effort,
         codex_extra_args,
         gemini_extra_args,
         claude_extra_args,

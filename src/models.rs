@@ -109,10 +109,10 @@ pub struct ProviderSpec {
     /// Default opencode provider prefix (e.g. "openai").
     pub default_opencode_provider: &'static str,
     /// Env var that carries the YAML-block `reasoning_effort` value, if this provider
-    /// exposes one (currently only `openai` → `CONSULT_LLM_CODEX_REASONING_EFFORT`).
+    /// exposes one.
     pub reasoning_effort_env: Option<&'static str>,
     /// Env var that carries the YAML-block `extra_args` value, if this provider exposes
-    /// one (openai → `CONSULT_LLM_CODEX_EXTRA_ARGS`, gemini → `CONSULT_LLM_GEMINI_EXTRA_ARGS`).
+    /// one.
     pub extra_args_env: Option<&'static str>,
     /// Env var key for the CLI profile name (e.g. "CONSULT_LLM_ANTHROPIC_CLI_PROFILE").
     pub cli_profile_env: &'static str,
@@ -272,7 +272,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         allowed_backends: &["api", "cursor-cli", "profile", "claude-cli"],
         opencode_env: "CONSULT_LLM_OPENCODE_ANTHROPIC_PROVIDER",
         default_opencode_provider: "anthropic",
-        reasoning_effort_env: None,
+        reasoning_effort_env: Some("CONSULT_LLM_CLAUDE_REASONING_EFFORT"),
         extra_args_env: Some("CONSULT_LLM_CLAUDE_EXTRA_ARGS"),
         cli_profile_env: "CONSULT_LLM_ANTHROPIC_CLI_PROFILE",
     },
@@ -541,7 +541,10 @@ mod tests {
             }
             if let Some(env) = spec.reasoning_effort_env {
                 assert!(!env.is_empty());
-                assert_eq!(spec.provider, Provider::OpenAI);
+                assert!(matches!(
+                    spec.provider,
+                    Provider::OpenAI | Provider::Anthropic
+                ));
             }
             if let Some(env) = spec.extra_args_env {
                 assert!(!env.is_empty());

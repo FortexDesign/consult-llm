@@ -422,9 +422,9 @@ mod tests {
 
     #[test]
     fn test_parse_rejects_unsupported_reasoning_effort_for_provider() {
-        let err = ConfigFile::parse("anthropic:\n  reasoning_effort: high\n").unwrap_err();
+        let err = ConfigFile::parse("gemini:\n  reasoning_effort: high\n").unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("anthropic"));
+        assert!(msg.contains("gemini"));
         assert!(msg.contains("reasoning_effort"));
         assert!(msg.contains("unsupported"));
     }
@@ -527,6 +527,7 @@ openai:
   extra_args: --dangerously-bypass-approvals-and-sandbox
 anthropic:
   backend: api
+  reasoning_effort: x-high
   api_key: sk-ant-test
 deepseek:
   backend: api
@@ -580,6 +581,7 @@ openrouter:
 
         // Reasoning + extra args use the spec-declared env names.
         assert_eq!(m["CONSULT_LLM_CODEX_REASONING_EFFORT"], "high");
+        assert_eq!(m["CONSULT_LLM_CLAUDE_REASONING_EFFORT"], "x-high");
         assert_eq!(
             m["CONSULT_LLM_CODEX_EXTRA_ARGS"],
             "--dangerously-bypass-approvals-and-sandbox"

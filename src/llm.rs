@@ -106,7 +106,7 @@ impl ExecutorProvider {
                     env: std::collections::BTreeMap::new(),
                     interface: CliProfileInterface::StreamJson,
                     prompt: CliPromptMode::Stdin,
-                    effort: None,
+                    effort: cfg.claude_reasoning_effort,
                     model_env: Some("ANTHROPIC_MODEL".to_string()),
                 };
                 Arc::new(ClaudeCliExecutor::new(config))
@@ -132,7 +132,7 @@ impl ExecutorProvider {
                             env: selected.profile.env.clone(),
                             interface: selected.profile.interface.clone(),
                             prompt: selected.profile.prompt.clone(),
-                            effort: selected.profile.effort.clone(),
+                            effort: selected.profile.effort,
                             model_env: selected.profile.model_env.clone(),
                         };
                         Arc::new(ClaudeCliExecutor::new(config))
@@ -188,6 +188,20 @@ mod tests {
             .get_executor("claude-opus-4-7")
             .expect("should create claude cli executor");
         assert_eq!(executor.backend_name(), "claude_cli");
+    }
+
+    #[test]
+    fn test_claude_cli_executor_uses_configured_effort() {
+        let env = env_from(&[
+            ("CONSULT_LLM_ANTHROPIC_BACKEND", "claude-cli"),
+            ("CONSULT_LLM_CLAUDE_REASONING_EFFORT", "x-high"),
+        ]);
+        let (config, _) = parse_config_with_cli_profiles(env, test_cli_profiles()).unwrap();
+        let provider = ExecutorProvider::new(Arc::new(config));
+        let executor = provider
+            .get_executor("claude-opus-4-7")
+            .expect("should create claude cli executor");
+        assert_eq!(executor.reasoning_effort("claude-opus-4-7"), Some("xhigh"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use super::super::migrate::migrate_prefixed_env;
-use super::super::types::ConfigError;
+use super::super::types::{ClaudeEffort, ConfigError};
 
 /// Tokenize a shell-quoted extra-args string. Empty/whitespace-only returns an
 /// empty vec; malformed quoting returns an error.
@@ -39,6 +39,17 @@ pub fn resolve_codex_reasoning_effort(
         return Err(ConfigError::InvalidCodexReasoningEffort(value));
     }
     Ok(value)
+}
+
+pub fn resolve_claude_reasoning_effort(
+    env: &impl Fn(&str) -> Option<String>,
+) -> Result<Option<ClaudeEffort>, ConfigError> {
+    let Some(value) = env("CONSULT_LLM_CLAUDE_REASONING_EFFORT") else {
+        return Ok(None);
+    };
+    serde_yaml::from_str(&value)
+        .map(Some)
+        .map_err(|_| ConfigError::InvalidClaudeReasoningEffort(value))
 }
 
 #[cfg(test)]
@@ -103,6 +114,44 @@ mod tests {
         ]);
         let (config, _) = parse_config(env).unwrap();
         assert_eq!(config.codex_reasoning_effort, "high");
+    }
+
+    #[test]
+    fn test_parse_config_claude_reasoning_effort_defaults_to_none() {
+        let env = env_from(&[("ANTHROPIC_API_KEY", "key")]);
+        let (config, _) = parse_config(env).unwrap();
+        assert_eq!(config.claude_reasoning_effort, None);
+    }
+
+    #[test]
+    fn test_parse_config_claude_reasoning_effort_valid() {
+        for (raw, expected) in [
+            ("low", ClaudeEffort::Low),
+            ("medium", ClaudeEffort::Medium),
+            ("high", ClaudeEffort::High),
+            ("x-high", ClaudeEffort::XHigh),
+            ("xhigh", ClaudeEffort::XHigh),
+            ("extra-high", ClaudeEffort::XHigh),
+            ("max", ClaudeEffort::Max),
+        ] {
+            let pairs = [
+                ("ANTHROPIC_API_KEY", "key"),
+                ("CONSULT_LLM_CLAUDE_REASONING_EFFORT", raw),
+            ];
+            let env = env_from(&pairs);
+            let (config, _) = parse_config(env).unwrap();
+            assert_eq!(config.claude_reasoning_effort, Some(expected));
+        }
+    }
+
+    #[test]
+    fn test_parse_config_invalid_claude_reasoning_effort() {
+        let env = env_from(&[
+            ("ANTHROPIC_API_KEY", "key"),
+            ("CONSULT_LLM_CLAUDE_REASONING_EFFORT", "extreme"),
+        ]);
+        let err = parse_config(env).unwrap_err();
+        assert!(matches!(err, ConfigError::InvalidClaudeReasoningEffort(ref s) if s == "extreme"));
     }
 
     #[test]

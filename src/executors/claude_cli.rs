@@ -50,6 +50,10 @@ impl LlmExecutor for ClaudeCliExecutor {
         "claude_cli"
     }
 
+    fn reasoning_effort(&self, _model: &str) -> Option<&str> {
+        self.config.effort.as_ref().map(ClaudeEffort::as_str)
+    }
+
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
         let ExecutionRequest {
             prompt,
