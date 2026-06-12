@@ -307,6 +307,7 @@ pub(super) fn apply_run_event_to_detail(detail: &mut DetailState, event: RunEven
             detail.duration_ms = Some(duration_ms);
             detail.success = Some(success);
             detail.error = error;
+            detail.last_stage = None;
         }
     }
 }
@@ -323,5 +324,74 @@ pub(super) fn apply_run_event_to_thread_detail(detail: &mut ThreadDetailState, e
             detail.success = Some(success);
         }
         RunEventKind::RunStarted | RunEventKind::Progress { .. } => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use consult_llm_core::monitoring::ProgressStage;
+
+    fn detail_state() -> DetailState {
+        DetailState {
+            run_id: "run-1".into(),
+            events: Vec::new(),
+            file_offset: 0,
+            scroll: 0,
+            auto_scroll: false,
+            model: None,
+            backend: None,
+            reasoning_effort: None,
+            started_at: None,
+            duration_ms: None,
+            success: None,
+            project: None,
+            task_mode: None,
+            error: None,
+            last_stage: None,
+            cached_lines: None,
+            cached_event_count: 0,
+            cached_width: 0,
+            cached_has_active_tools: false,
+            show_system_prompt: false,
+            response_line_offset: None,
+            siblings: Vec::new(),
+            sibling_index: 0,
+        }
+    }
+
+    fn run_event(kind: RunEventKind) -> RunEvent {
+        RunEvent {
+            v: 1,
+            run_id: "run-1".into(),
+            seq: 1,
+            ts: "2026-04-24T00:00:00.000Z".into(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn run_finished_clears_last_stage() {
+        let mut detail = detail_state();
+        apply_run_event_to_detail(
+            &mut detail,
+            run_event(RunEventKind::Progress {
+                stage: ProgressStage::Responding,
+            }),
+        );
+        assert_eq!(detail.last_stage.as_deref(), Some("Responding..."));
+
+        apply_run_event_to_detail(
+            &mut detail,
+            run_event(RunEventKind::RunFinished {
+                duration_ms: 100,
+                success: true,
+                error: None,
+            }),
+        );
+
+        assert_eq!(detail.duration_ms, Some(100));
+        assert_eq!(detail.success, Some(true));
+        assert_eq!(detail.last_stage, None);
     }
 }
