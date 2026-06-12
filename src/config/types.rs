@@ -85,6 +85,28 @@ pub enum CliProfileType {
     ClaudeCli,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClaudeEffort {
+    Low,
+    Medium,
+    High,
+    XHigh,
+    Max,
+}
+
+impl std::fmt::Display for ClaudeEffort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClaudeEffort::Low => write!(f, "low"),
+            ClaudeEffort::Medium => write!(f, "medium"),
+            ClaudeEffort::High => write!(f, "high"),
+            ClaudeEffort::XHigh => write!(f, "xhigh"),
+            ClaudeEffort::Max => write!(f, "max"),
+        }
+    }
+}
+
 impl Default for CliProfileType {
     fn default() -> Self {
         Self::ClaudeCli
@@ -106,7 +128,7 @@ pub struct CliProfile {
     pub interface: CliProfileInterface,
     #[serde(default = "default_prompt")]
     pub prompt: CliPromptMode,
-    pub effort: Option<String>,
+    pub effort: Option<ClaudeEffort>,
     pub model_env: Option<String>,
 }
 
