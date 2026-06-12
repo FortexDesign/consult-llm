@@ -76,10 +76,12 @@ impl StreamReducer {
                     ref call_id,
                     ref label,
                 } => {
+                    if !self.active_tools.contains_key(call_id) {
+                        s.set_stage(ProgressStage::ToolUse {
+                            tool: label.clone(),
+                        });
+                    }
                     self.active_tools.insert(call_id.clone(), label.clone());
-                    s.set_stage(ProgressStage::ToolUse {
-                        tool: label.clone(),
-                    });
                 }
                 ParsedStreamEvent::ToolFinished {
                     ref call_id,
@@ -190,6 +192,26 @@ mod tests {
             id: "api_late".into(),
         }]);
         assert_eq!(r.thread_id.as_deref(), Some("api_late"));
+    }
+
+    #[test]
+    fn duplicate_tool_started_does_not_prevent_finish() {
+        let mut r = reducer();
+        r.process(smallvec![ParsedStreamEvent::ToolStarted {
+            call_id: "c1".into(),
+            label: "read a".into(),
+        }]);
+        r.process(smallvec![ParsedStreamEvent::ToolStarted {
+            call_id: "c1".into(),
+            label: "read a".into(),
+        }]);
+        r.process(smallvec![ParsedStreamEvent::ToolFinished {
+            call_id: "c1".into(),
+            success: true,
+            error: None,
+        }]);
+        assert!(r.response.is_empty());
+        assert!(r.thread_id.is_none());
     }
 
     #[test]

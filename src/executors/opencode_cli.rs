@@ -123,10 +123,7 @@ fn parse_tool_use(event: &serde_json::Value) -> StreamEvents {
             ParsedStreamEvent::ToolFinished {
                 call_id,
                 success: false,
-                error: state
-                    .get("error")
-                    .and_then(|error| error.as_str())
-                    .map(|error| error.to_string()),
+                error: state.get("error").and_then(error_text),
             }
         ],
         _ => smallvec![],
@@ -146,6 +143,26 @@ fn tool_started_event(
         call_id,
         label: tool_label(name, tool_detail(state).as_deref()),
     }
+}
+
+fn error_text(error: &serde_json::Value) -> Option<String> {
+    error
+        .as_str()
+        .map(|error| error.to_string())
+        .or_else(|| {
+            error
+                .get("message")
+                .and_then(|message| message.as_str())
+                .map(|message| message.to_string())
+        })
+        .or_else(|| {
+            error
+                .get("data")
+                .and_then(|data| data.get("message"))
+                .and_then(|message| message.as_str())
+                .map(|message| message.to_string())
+        })
+        .or_else(|| Some(error.to_string()).filter(|error| error != "null"))
 }
 
 fn tool_detail(state: &serde_json::Value) -> Option<String> {
@@ -269,6 +286,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_opencode_line_raw_tool_completed() {
+        let events = parse_opencode_line(
+            r#"{"type":"tool_use","timestamp":1781248898147,"sessionID":"ses_1454ad458ffergZHQMFMnQGntV","part":{"type":"tool","tool":"read","callID":"call_fea4a3c91e4649298af9d400","state":{"status":"completed","input":{"filePath":"/Users/raine/code/consult-llm__worktrees/opencode-tool-logs/src/executors/opencode_cli.rs","limit":1},"output":"<content>1: use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};</content>","metadata":{"preview":"use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};"},"title":"src/executors/opencode_cli.rs","time":{"start":1781248898137,"end":1781248898145}},"id":"prt_ebab53454001IT9Pl6qWRqKB5E","sessionID":"ses_1454ad458ffergZHQMFMnQGntV","messageID":"msg_ebab52c51001lWvsVrd0dTFoUb"}}"#,
+        );
+        assert_eq!(events.len(), 2);
+        assert!(
+            matches!(&events[0], ParsedStreamEvent::ToolStarted { call_id, label } if call_id == "call_fea4a3c91e4649298af9d400" && label == "read /Users/raine/code/consult-llm__worktrees/opencode-tool-logs/src/executors/opencode_cli.rs")
+        );
+        assert!(
+            matches!(&events[1], ParsedStreamEvent::ToolFinished { call_id, success, error } if call_id == "call_fea4a3c91e4649298af9d400" && *success && error.is_none())
+        );
+    }
+
+    #[test]
     fn test_parse_opencode_line_tool_started() {
         let events = parse_opencode_line(
             r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"bash","state":{"status":"running","input":{"command":"cargo test"},"time":{"start":123}}}}"#,
@@ -302,6 +333,17 @@ mod tests {
         assert!(
             matches!(&events[0], ParsedStreamEvent::ToolStarted { call_id, label } if call_id == "call_1" && label == "bash cargo test")
         );
+        assert!(
+            matches!(&events[1], ParsedStreamEvent::ToolFinished { call_id, success, error } if call_id == "call_1" && !*success && error.as_deref() == Some("exit 1"))
+        );
+    }
+
+    #[test]
+    fn test_parse_opencode_line_tool_finished_structured_error() {
+        let events = parse_opencode_line(
+            r#"{"type":"tool_use","sessionID":"ses_abc","part":{"id":"prt_1","type":"tool","callID":"call_1","tool":"bash","state":{"status":"error","input":{"command":"cargo test"},"error":{"data":{"message":"exit 1"}},"time":{"start":123,"end":456}}}}"#,
+        );
+        assert_eq!(events.len(), 2);
         assert!(
             matches!(&events[1], ParsedStreamEvent::ToolFinished { call_id, success, error } if call_id == "call_1" && !*success && error.as_deref() == Some("exit 1"))
         );

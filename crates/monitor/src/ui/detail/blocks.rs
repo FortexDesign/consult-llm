@@ -109,13 +109,19 @@ pub(super) fn normalize_events(events: &[ParsedStreamEvent]) -> Vec<RenderedBloc
                 }
             }
             ParsedStreamEvent::ToolStarted { call_id, label } => {
-                let idx = blocks.len();
-                blocks.push(RenderedBlock::Tool {
-                    label: label.clone(),
-                    success: None,
-                    error: None,
-                });
-                tool_indices.insert(call_id.as_str(), idx);
+                if let Some(&idx) = tool_indices.get(call_id.as_str())
+                    && let Some(RenderedBlock::Tool { label: l, .. }) = blocks.get_mut(idx)
+                {
+                    *l = label.clone();
+                } else {
+                    let idx = blocks.len();
+                    blocks.push(RenderedBlock::Tool {
+                        label: label.clone(),
+                        success: None,
+                        error: None,
+                    });
+                    tool_indices.insert(call_id.as_str(), idx);
+                }
             }
             ParsedStreamEvent::ToolFinished {
                 call_id,
@@ -466,7 +472,41 @@ fn render_usage_line(
 
 #[cfg(test)]
 mod tests {
-    use super::split_at_width;
+    use super::{RenderedBlock, normalize_events, split_at_width};
+    use consult_llm_core::stream_events::ParsedStreamEvent;
+
+    #[test]
+    fn normalize_events_deduplicates_tool_started() {
+        let blocks = normalize_events(&[
+            ParsedStreamEvent::ToolStarted {
+                call_id: "c1".to_string(),
+                label: "read a".to_string(),
+            },
+            ParsedStreamEvent::ToolStarted {
+                call_id: "c1".to_string(),
+                label: "read a".to_string(),
+            },
+            ParsedStreamEvent::ToolFinished {
+                call_id: "c1".to_string(),
+                success: true,
+                error: None,
+            },
+        ]);
+
+        let tools: Vec<_> = blocks
+            .iter()
+            .filter(|block| matches!(block, RenderedBlock::Tool { .. }))
+            .collect();
+        assert_eq!(tools.len(), 1);
+        assert!(matches!(
+            tools[0],
+            RenderedBlock::Tool {
+                label,
+                success: Some(true),
+                error: None,
+            } if label == "read a"
+        ));
+    }
 
     #[test]
     fn split_at_width_does_not_panic_inside_multibyte_char() {
