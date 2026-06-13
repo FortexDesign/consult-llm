@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.20 (2026-06-12)
+
+- Added a native Claude CLI backend for Anthropic models, so `anthropic.backend: claude-cli` can use the stock `claude` command without defining a custom profile.
+- Claude CLI runs now support configurable reasoning effort and extra arguments through config files or `CONSULT_LLM_CLAUDE_*` environment variables.
+- `consult-llm doctor` now checks for the `claude` command when the native Claude CLI backend is selected.
+- Monitor detail views now clear the in-progress stage once a run finishes.
+
 ## v3.0.19 (2026-06-12)
 
 - OpenCode CLI runs now show tool calls and tool errors in the monitor detail view.
