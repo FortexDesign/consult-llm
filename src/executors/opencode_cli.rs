@@ -1,4 +1,7 @@
-use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
+use super::stream::{
+    ParsedStreamEvent, StreamEvents, first_non_empty_string, parse_json_line, tool_label,
+    usage_event_from_keys,
+};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{append_file_refs, run_cli_executor};
 
@@ -24,11 +27,7 @@ impl OpenCodeCliExecutor {
 pub fn parse_opencode_line(line: &str) -> StreamEvents {
     use smallvec::smallvec;
 
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return smallvec![];
-    }
-    let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+    let Some(event) = parse_json_line(line) else {
         return smallvec![];
     };
 
@@ -58,12 +57,7 @@ pub fn parse_opencode_line(line: &str) -> StreamEvents {
             if let Some(part) = event.get("part")
                 && let Some(tokens) = part.get("tokens")
             {
-                let input = tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
-                let output = tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
-                smallvec![ParsedStreamEvent::Usage {
-                    prompt_tokens: input,
-                    completion_tokens: output,
-                }]
+                smallvec![usage_event_from_keys(tokens, "input", "output")]
             } else {
                 smallvec![]
             }
@@ -166,25 +160,22 @@ fn error_text(error: &serde_json::Value) -> Option<String> {
 }
 
 fn tool_detail(state: &serde_json::Value) -> Option<String> {
-    let input = state.get("input")?;
-    for key in [
-        "filePath",
-        "file_path",
-        "path",
-        "pattern",
-        "command",
-        "cmd",
-        "url",
-        "query",
-        "description",
-    ] {
-        if let Some(value) = input.get(key).and_then(|value| value.as_str())
-            && !value.is_empty()
-        {
-            return Some(value.to_string());
-        }
-    }
-    None
+    state.get("input").and_then(|input| {
+        first_non_empty_string(
+            input,
+            &[
+                "filePath",
+                "file_path",
+                "path",
+                "pattern",
+                "command",
+                "cmd",
+                "url",
+                "query",
+                "description",
+            ],
+        )
+    })
 }
 
 impl LlmExecutor for OpenCodeCliExecutor {

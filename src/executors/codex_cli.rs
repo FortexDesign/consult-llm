@@ -1,4 +1,4 @@
-use super::stream::{ParsedStreamEvent, StreamEvents};
+use super::stream::{ParsedStreamEvent, StreamEvents, parse_json_line, usage_event_from_keys};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{append_file_refs, build_extra_dir_args, run_cli_executor};
 pub struct CodexCliExecutor {
@@ -24,11 +24,7 @@ impl CodexCliExecutor {
 pub fn parse_codex_line(line: &str) -> StreamEvents {
     use smallvec::smallvec;
 
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return smallvec![];
-    }
-    let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+    let Some(event) = parse_json_line(line) else {
         return smallvec![];
     };
     let event_type = event.get("type").and_then(|t| t.as_str());
@@ -106,12 +102,7 @@ pub fn parse_codex_line(line: &str) -> StreamEvents {
         }
         Some("turn.completed") => {
             if let Some(u) = event.get("usage") {
-                let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                smallvec![ParsedStreamEvent::Usage {
-                    prompt_tokens: input,
-                    completion_tokens: output,
-                }]
+                smallvec![usage_event_from_keys(u, "input_tokens", "output_tokens")]
             } else {
                 smallvec![]
             }

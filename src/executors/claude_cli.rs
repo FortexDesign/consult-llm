@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use smallvec::smallvec;
 
-use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
+use super::stream::{ParsedStreamEvent, StreamEvents, first_non_empty_string, tool_label};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{CliOutputParser, run_cli_executor_with_env};
 
@@ -333,15 +333,12 @@ impl ClaudeCliParser {
 }
 
 fn tool_detail(block: &serde_json::Value) -> Option<String> {
-    let input = block.get("input")?;
-    for key in ["file_path", "path", "pattern", "command", "cmd", "url"] {
-        if let Some(value) = input.get(key).and_then(|value| value.as_str())
-            && !value.is_empty()
-        {
-            return Some(value.to_string());
-        }
-    }
-    None
+    block.get("input").and_then(|input| {
+        first_non_empty_string(
+            input,
+            &["file_path", "path", "pattern", "command", "cmd", "url"],
+        )
+    })
 }
 
 fn extract_tool_result_text(block: &serde_json::Value) -> String {

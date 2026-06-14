@@ -1,4 +1,6 @@
-use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
+use super::stream::{
+    ParsedStreamEvent, StreamEvents, parse_json_line, tool_label, usage_event_from_keys,
+};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 use super::{append_file_refs, build_extra_dir_args, run_cli_executor};
 
@@ -23,11 +25,7 @@ impl GeminiCliExecutor {
 pub fn parse_gemini_line(line: &str) -> StreamEvents {
     use smallvec::smallvec;
 
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return smallvec![];
-    }
-    let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+    let Some(event) = parse_json_line(line) else {
         return smallvec![];
     };
 
@@ -121,18 +119,11 @@ pub fn parse_gemini_line(line: &str) -> StreamEvents {
         }
         Some("result") => {
             if let Some(stats) = event.get("stats") {
-                let input = stats
-                    .get("input_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let output = stats
-                    .get("output_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                smallvec![ParsedStreamEvent::Usage {
-                    prompt_tokens: input,
-                    completion_tokens: output,
-                }]
+                smallvec![usage_event_from_keys(
+                    stats,
+                    "input_tokens",
+                    "output_tokens"
+                )]
             } else {
                 smallvec![]
             }

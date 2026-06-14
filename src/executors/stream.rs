@@ -11,6 +11,42 @@ pub use consult_llm_core::stream_events::ParsedStreamEvent;
 /// for the common case.
 pub type StreamEvents = SmallVec<[ParsedStreamEvent; 2]>;
 
+/// Trim a CLI JSON line and parse it, ignoring empty lines and malformed JSON.
+pub fn parse_json_line(line: &str) -> Option<serde_json::Value> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    serde_json::from_str(trimmed).ok()
+}
+
+/// Build a usage event from prompt and completion token fields on a JSON object.
+pub fn usage_event_from_keys(
+    value: &serde_json::Value,
+    prompt_key: &str,
+    completion_key: &str,
+) -> ParsedStreamEvent {
+    ParsedStreamEvent::Usage {
+        prompt_tokens: value.get(prompt_key).and_then(|v| v.as_u64()).unwrap_or(0),
+        completion_tokens: value
+            .get(completion_key)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+    }
+}
+
+/// Return the first non-empty string value for any of the given keys.
+pub fn first_non_empty_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(text) = value.get(key).and_then(|v| v.as_str())
+            && !text.is_empty()
+        {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
 /// Format a tool label with an optional detail (file path, pattern, etc.)
 /// e.g. ("read", Some("src/main.rs")) → "read src/main.rs"
 pub fn tool_label(name: &str, detail: Option<&str>) -> String {
@@ -212,6 +248,42 @@ mod tests {
         }]);
         assert!(r.response.is_empty());
         assert!(r.thread_id.is_none());
+    }
+
+    #[test]
+    fn parse_json_line_ignores_empty_and_malformed() {
+        assert!(parse_json_line("").is_none());
+        assert!(parse_json_line("  ").is_none());
+        assert!(parse_json_line("not json").is_none());
+    }
+
+    #[test]
+    fn parse_json_line_parses_valid_json() {
+        let value = parse_json_line(r#"{"type":"init"}"#).expect("parsed");
+        assert_eq!(value.get("type").and_then(|t| t.as_str()), Some("init"));
+    }
+
+    #[test]
+    fn usage_event_from_keys_reads_token_fields() {
+        let value: serde_json::Value =
+            serde_json::from_str(r#"{"input_tokens":10,"output_tokens":5}"#).unwrap();
+        assert!(matches!(
+            usage_event_from_keys(&value, "input_tokens", "output_tokens"),
+            ParsedStreamEvent::Usage {
+                prompt_tokens: 10,
+                completion_tokens: 5
+            }
+        ));
+    }
+
+    #[test]
+    fn first_non_empty_string_skips_empty_values() {
+        let value: serde_json::Value =
+            serde_json::from_str(r#"{"path":"","file_path":"src/main.rs"}"#).unwrap();
+        assert_eq!(
+            first_non_empty_string(&value, &["path", "file_path"]).as_deref(),
+            Some("src/main.rs")
+        );
     }
 
     #[test]

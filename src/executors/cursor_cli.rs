@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 use super::cursor_models;
 use super::run_cli_executor;
-use super::stream::{ParsedStreamEvent, StreamEvents, tool_label};
+use super::stream::{
+    ParsedStreamEvent, StreamEvents, parse_json_line, tool_label, usage_event_from_keys,
+};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 pub struct CursorCliExecutor {
     capabilities: LlmExecutorCapabilities,
@@ -26,11 +28,7 @@ impl CursorCliExecutor {
 pub fn parse_cursor_line(line: &str) -> StreamEvents {
     use smallvec::smallvec;
 
-    let trimmed = line.trim();
-    if trimmed.is_empty() {
-        return smallvec![];
-    }
-    let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+    let Some(event) = parse_json_line(line) else {
         return smallvec![];
     };
     let event_type = event.get("type").and_then(|t| t.as_str());
@@ -103,12 +101,7 @@ pub fn parse_cursor_line(line: &str) -> StreamEvents {
                 });
             }
             if let Some(u) = event.get("usage") {
-                let input = u.get("inputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let output = u.get("outputTokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                events.push(ParsedStreamEvent::Usage {
-                    prompt_tokens: input,
-                    completion_tokens: output,
-                });
+                events.push(usage_event_from_keys(u, "inputTokens", "outputTokens"));
             }
             events
         }
