@@ -10,7 +10,11 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
-use crate::state::{BG, DIM_WHITE, SEPARATOR, TEAL};
+use consult_llm_core::stream_events::ParsedStreamEvent;
+
+use crate::state::{BG, DIM, DIM_WHITE, GREEN, RED, SEPARATOR, SPINNER_FRAMES, TEAL};
+
+use blocks::live_spinner_label;
 
 /// Three-way vertical split used by both detail views: header (3) / body (min 3) / status (1).
 fn compute_detail_layout(area: Rect) -> [Rect; 3] {
@@ -49,6 +53,70 @@ fn render_detail_body(frame: &mut ratatui::Frame, area: Rect, visible_lines: Vec
             .border_style(Style::default().fg(SEPARATOR)),
     );
     frame.render_widget(content, area);
+}
+
+fn detail_header_block(title: String) -> Block<'static> {
+    Block::default()
+        .title(Line::from(vec![Span::styled(
+            title,
+            Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
+        )]))
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(SEPARATOR))
+}
+
+fn push_success_project_spans(
+    spans: &mut Vec<Span<'static>>,
+    success: Option<bool>,
+    project: Option<&str>,
+) {
+    if let Some(success) = success {
+        let (icon, color) = if success {
+            ("\u{2713}", GREEN)
+        } else {
+            ("\u{2717}", RED)
+        };
+        spans.push(Span::styled(
+            format!("  {icon}"),
+            Style::default().fg(color),
+        ));
+    }
+    if let Some(project) = project {
+        spans.push(Span::styled(
+            format!("  {project}"),
+            Style::default().fg(DIM),
+        ));
+    }
+}
+
+fn append_live_spinner(
+    lines: &mut Vec<Line<'static>>,
+    tick: usize,
+    is_live: bool,
+    events: &[ParsedStreamEvent],
+) {
+    if !is_live {
+        return;
+    }
+    let spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.len()];
+    let label = live_spinner_label(events);
+    lines.push(Line::default());
+    lines.push(Line::from(vec![Span::styled(
+        format!("  {spinner} {label}"),
+        Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
+    )]));
+}
+
+fn push_base_status_spans(spans: &mut Vec<Span<'static>>) {
+    spans.extend([
+        Span::styled(" q/Esc", Style::default().fg(TEAL)),
+        Span::styled(" back  ", Style::default().fg(DIM_WHITE)),
+        Span::styled("j/k", Style::default().fg(TEAL)),
+        Span::styled(" scroll  ", Style::default().fg(DIM_WHITE)),
+        Span::styled("d/u", Style::default().fg(TEAL)),
+        Span::styled(" half-page  ", Style::default().fg(DIM_WHITE)),
+    ]);
 }
 
 fn push_live_follow_spans(spans: &mut Vec<Span<'static>>, is_live: bool, follow_on: bool) {

@@ -1,19 +1,17 @@
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use consult_llm_core::stream_events::ParsedStreamEvent;
 
 use crate::format::{format_cost_value, format_duration_friendly};
-use crate::state::{
-    AppMode, AppState, BG, DIM, DIM_WHITE, GREEN, RED, SEPARATOR, SPINNER_FRAMES, TEAL, WHITE,
-    YELLOW,
-};
+use crate::state::{AppMode, AppState, BG, DIM, DIM_WHITE, TEAL, WHITE, YELLOW};
 
-use super::blocks::{live_spinner_label, normalize_events, render_blocks};
+use super::blocks::{normalize_events, render_blocks};
 use super::{
-    compute_detail_layout, push_live_follow_spans, render_detail_body, visible_detail_lines,
+    append_live_spinner, compute_detail_layout, detail_header_block, push_base_status_spans,
+    push_live_follow_spans, push_success_project_spans, render_detail_body, visible_detail_lines,
 };
 
 pub(in crate::ui) fn render_thread_detail_view(
@@ -38,14 +36,7 @@ pub(in crate::ui) fn render_thread_detail_view(
     } else {
         &detail.thread_id
     };
-    let block = Block::default()
-        .title(Line::from(vec![Span::styled(
-            format!(" thread:{thread_id_short}… "),
-            Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
-        )]))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SEPARATOR));
+    let block = detail_header_block(format!(" thread:{thread_id_short}… "));
 
     let mut header_spans: Vec<Span> = Vec::new();
     header_spans.push(Span::styled(" ", Style::default()));
@@ -143,26 +134,7 @@ pub(in crate::ui) fn render_thread_detail_view(
         Style::default().fg(DIM_WHITE),
     ));
 
-    // Success/failure indicator
-    if let Some(success) = detail.success {
-        let (icon, color) = if success {
-            ("\u{2713}", GREEN)
-        } else {
-            ("\u{2717}", RED)
-        };
-        header_spans.push(Span::styled(
-            format!("  {icon}"),
-            Style::default().fg(color),
-        ));
-    }
-
-    // Project
-    if let Some(ref project) = detail.project {
-        header_spans.push(Span::styled(
-            format!("  {project}"),
-            Style::default().fg(DIM),
-        ));
-    }
+    push_success_project_spans(&mut header_spans, detail.success, detail.project.as_deref());
 
     frame.render_widget(
         Paragraph::new(Line::from(header_spans)).block(block),
@@ -238,22 +210,11 @@ pub(in crate::ui) fn render_thread_detail_view(
     lines.extend(active_lines);
     let response_line_offset = active_response_offset.map(|off| active_turn_base + off);
 
-    // Append spinner if latest turn is still live
     let is_live = detail
         .turn_ids
         .last()
         .is_some_and(|run_id| state.is_run_active(run_id));
-    if is_live {
-        let spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.len()];
-        let label = live_spinner_label(&detail.active_events);
-        lines.push(Line::default());
-        lines.push(Line::from(vec![Span::styled(
-            format!("  {spinner} {label}"),
-            Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
-        )]));
-    }
-
-    // Store turn_line_offsets and response offset back into state
+    append_live_spinner(&mut lines, tick, is_live, &detail.active_events);
     if let AppMode::ThreadDetail(ref mut detail) = state.mode {
         detail.turn_line_offsets = turn_line_offsets;
         detail.response_line_offset = response_line_offset;
@@ -278,16 +239,12 @@ pub(in crate::ui) fn render_thread_detail_view(
     // ── Status bar ──────────────────────────────────────────────────
     let follow_on = matches!(state.mode, AppMode::ThreadDetail(ref d) if d.auto_scroll);
 
-    let mut bar_spans = vec![
-        Span::styled(" q/Esc", Style::default().fg(TEAL)),
-        Span::styled(" back  ", Style::default().fg(DIM_WHITE)),
-        Span::styled("j/k", Style::default().fg(TEAL)),
-        Span::styled(" scroll  ", Style::default().fg(DIM_WHITE)),
-        Span::styled("d/u", Style::default().fg(TEAL)),
-        Span::styled(" half-page  ", Style::default().fg(DIM_WHITE)),
+    let mut bar_spans = Vec::new();
+    push_base_status_spans(&mut bar_spans);
+    bar_spans.extend([
         Span::styled("[/]", Style::default().fg(TEAL)),
         Span::styled(" prev/next turn", Style::default().fg(DIM_WHITE)),
-    ];
+    ]);
     push_live_follow_spans(&mut bar_spans, is_live, follow_on);
     let bar = Line::from(bar_spans);
     frame.render_widget(

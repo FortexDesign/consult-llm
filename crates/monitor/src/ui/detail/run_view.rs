@@ -1,20 +1,18 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use chrono::Utc;
 use consult_llm_core::stream_events::ParsedStreamEvent;
 
 use crate::format::{format_cost, format_duration_friendly, format_token_count};
-use crate::state::{
-    AppMode, AppState, BG, DIM, DIM_WHITE, GREEN, RED, SEPARATOR, SPINNER_FRAMES, TEAL, WHITE,
-    task_mode_color,
-};
+use crate::state::{AppMode, AppState, BG, DIM, DIM_WHITE, RED, TEAL, WHITE, task_mode_color};
 
-use super::blocks::{live_spinner_label, normalize_events, render_blocks, split_at_width};
+use super::blocks::{normalize_events, render_blocks, split_at_width};
 use super::{
-    compute_detail_layout, push_live_follow_spans, render_detail_body, visible_detail_lines,
+    append_live_spinner, compute_detail_layout, detail_header_block, push_base_status_spans,
+    push_live_follow_spans, push_success_project_spans, render_detail_body, visible_detail_lines,
 };
 
 pub(in crate::ui) fn render_detail_view(
@@ -35,14 +33,7 @@ pub(in crate::ui) fn render_detail_view(
     let inner_width = chunks[1].width.saturating_sub(2) as usize;
 
     // ── Header ──────────────────────────────────────────────────────
-    let block = Block::default()
-        .title(Line::from(vec![Span::styled(
-            format!(" {run_id} "),
-            Style::default().fg(TEAL).add_modifier(Modifier::BOLD),
-        )]))
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(SEPARATOR));
+    let block = detail_header_block(format!(" {run_id} "));
 
     let mut header_spans: Vec<Span> = Vec::new();
     header_spans.push(Span::styled(" ", Style::default()));
@@ -151,26 +142,7 @@ pub(in crate::ui) fn render_detail_view(
         ));
     }
 
-    // Success/failure indicator (completed only)
-    if let Some(success) = detail.success {
-        let (icon, color) = if success {
-            ("\u{2713}", GREEN)
-        } else {
-            ("\u{2717}", RED)
-        };
-        header_spans.push(Span::styled(
-            format!("  {icon}"),
-            Style::default().fg(color),
-        ));
-    }
-
-    // Project
-    if let Some(ref project) = detail.project {
-        header_spans.push(Span::styled(
-            format!("  {project}"),
-            Style::default().fg(DIM),
-        ));
-    }
+    push_success_project_spans(&mut header_spans, detail.success, detail.project.as_deref());
 
     frame.render_widget(
         Paragraph::new(Line::from(header_spans)).block(block),
@@ -211,16 +183,7 @@ pub(in crate::ui) fn render_detail_view(
         )
     };
 
-    // Append a spinner when the run is still live
-    if is_live {
-        let spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.len()];
-        let label = live_spinner_label(&detail.events);
-        lines.push(Line::default());
-        lines.push(Line::from(vec![Span::styled(
-            format!("  {spinner} {label}"),
-            Style::default().fg(DIM).add_modifier(Modifier::ITALIC),
-        )]));
-    }
+    append_live_spinner(&mut lines, tick, is_live, &detail.events);
 
     // Clone error before mutable borrow for cache update
     let detail_error = detail.error.clone();
@@ -286,18 +249,14 @@ pub(in crate::ui) fn render_detail_view(
     // ── Status bar ──────────────────────────────────────────────────
     let follow_on = matches!(state.mode, AppMode::Detail(ref d) if d.auto_scroll);
 
-    let mut bar_spans = vec![
-        Span::styled(" q/Esc", Style::default().fg(TEAL)),
-        Span::styled(" back  ", Style::default().fg(DIM_WHITE)),
-        Span::styled("j/k", Style::default().fg(TEAL)),
-        Span::styled(" scroll  ", Style::default().fg(DIM_WHITE)),
-        Span::styled("d/u", Style::default().fg(TEAL)),
-        Span::styled(" half-page  ", Style::default().fg(DIM_WHITE)),
+    let mut bar_spans = Vec::new();
+    push_base_status_spans(&mut bar_spans);
+    bar_spans.extend([
         Span::styled("r", Style::default().fg(TEAL)),
         Span::styled(" response  ", Style::default().fg(DIM_WHITE)),
         Span::styled("s", Style::default().fg(TEAL)),
         Span::styled(" sys prompt", Style::default().fg(DIM_WHITE)),
-    ];
+    ]);
     push_live_follow_spans(&mut bar_spans, is_live, follow_on);
 
     // Sibling indicator (right-aligned)
