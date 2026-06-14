@@ -237,10 +237,11 @@ fn fetch_from_cli() -> Option<Vec<String>> {
     }
 }
 
-pub fn available_models() -> ModelList {
-    let path = cache_path();
-    let now = now_secs();
-    let cached = path.as_deref().and_then(load_cached);
+fn available_models_from<F>(now: u64, path: Option<&Path>, fetch: F) -> ModelList
+where
+    F: FnOnce() -> Option<Vec<String>>,
+{
+    let cached = path.and_then(load_cached);
 
     if let Some(c) = &cached
         && c.fetched_at <= now
@@ -249,8 +250,8 @@ pub fn available_models() -> ModelList {
         return ModelList::Fresh(c.models.clone());
     }
 
-    if let Some(models) = fetch_from_cli() {
-        if let Some(p) = path.as_deref() {
+    if let Some(models) = fetch() {
+        if let Some(p) = path {
             save_cached(
                 p,
                 &CachedModels {
@@ -268,41 +269,20 @@ pub fn available_models() -> ModelList {
     }
 }
 
-/// Pure decision logic mirroring `available_models`, used by tests so they
-/// don't have to spawn `cursor-agent`. Production code calls
-/// `available_models()` which composes this with `fetch_from_cli()`.
+pub fn available_models() -> ModelList {
+    let path = cache_path();
+    let now = now_secs();
+    available_models_from(now, path.as_deref(), fetch_from_cli)
+}
+
+/// Test seam for `available_models_from` so tests don't spawn `cursor-agent`.
 #[cfg(test)]
 fn available_models_with(
     now: u64,
     path: Option<&Path>,
     freshly_fetched: Option<Vec<String>>,
 ) -> ModelList {
-    let cached = path.and_then(load_cached);
-
-    if let Some(c) = &cached
-        && c.fetched_at <= now
-        && now - c.fetched_at < TTL_SECS
-    {
-        return ModelList::Fresh(c.models.clone());
-    }
-
-    if let Some(models) = freshly_fetched {
-        if let Some(p) = path {
-            save_cached(
-                p,
-                &CachedModels {
-                    models: models.clone(),
-                    fetched_at: now,
-                },
-            );
-        }
-        return ModelList::Fresh(models);
-    }
-
-    match cached {
-        Some(c) => ModelList::Stale(c.models),
-        None => ModelList::Unavailable,
-    }
+    available_models_from(now, path, || freshly_fetched)
 }
 
 #[cfg(test)]
