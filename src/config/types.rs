@@ -255,6 +255,20 @@ pub enum ConfigError {
     },
 }
 
+struct QuotedOptions<'a>(&'a [String]);
+
+impl fmt::Display for QuotedOptions<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let opts = self
+            .0
+            .iter()
+            .map(|v| format!("'{v}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        write!(f, "{opts}")
+    }
+}
+
 fn fmt_invalid_default_model(
     f: &mut fmt::Formatter<'_>,
     field: &str,
@@ -262,15 +276,11 @@ fn fmt_invalid_default_model(
     allowed: &[String],
 ) -> fmt::Result {
     let selectors: Vec<&str> = selector_priorities().map(|(s, _)| s).collect();
-    let opts = allowed
-        .iter()
-        .map(|m| format!("'{m}'"))
-        .collect::<Vec<_>>()
-        .join(" | ");
     write!(
         f,
-        "Invalid environment variables:\n  {field}: Invalid value '{model}'. Expected a selector ({}) or exact model ({opts})",
-        selectors.join(", ")
+        "Invalid environment variables:\n  {field}: Invalid value '{model}'. Expected a selector ({}) or exact model ({})",
+        selectors.join(", "),
+        QuotedOptions(allowed)
     )
 }
 
@@ -285,17 +295,11 @@ impl fmt::Display for ConfigError {
                 env_var,
                 raw,
                 allowed,
-            } => {
-                let opts = allowed
-                    .iter()
-                    .map(|v| format!("'{v}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                write!(
-                    f,
-                    "Invalid environment variables:\n  {env_var}: Invalid enum value. Expected {opts}, received '{raw}'"
-                )
-            }
+            } => write!(
+                f,
+                "Invalid environment variables:\n  {env_var}: Invalid enum value. Expected {}, received '{raw}'",
+                QuotedOptions(allowed)
+            ),
             ConfigError::InvalidDefaultModel { model, allowed } => {
                 fmt_invalid_default_model(f, "defaultModel", model, allowed)
             }
@@ -332,28 +336,16 @@ impl fmt::Display for ConfigError {
                 key,
                 backend,
                 allowed,
-            } => {
-                let opts = allowed
-                    .iter()
-                    .map(|v| format!("'{v}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                write!(
-                    f,
-                    "Invalid environment variables:\n  {key}: CLI profile required for backend '{backend}' but no profile set. Expected one of: {opts}"
-                )
-            }
-            ConfigError::InvalidCliProfileReference { key, raw, allowed } => {
-                let opts = allowed
-                    .iter()
-                    .map(|v| format!("'{v}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                write!(
-                    f,
-                    "Invalid environment variables:\n  {key}: Invalid CLI profile '{raw}'. Expected one of: {opts}"
-                )
-            }
+            } => write!(
+                f,
+                "Invalid environment variables:\n  {key}: CLI profile required for backend '{backend}' but no profile set. Expected one of: {}",
+                QuotedOptions(allowed)
+            ),
+            ConfigError::InvalidCliProfileReference { key, raw, allowed } => write!(
+                f,
+                "Invalid environment variables:\n  {key}: Invalid CLI profile '{raw}'. Expected one of: {}",
+                QuotedOptions(allowed)
+            ),
         }
     }
 }
