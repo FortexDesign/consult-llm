@@ -19,15 +19,29 @@ fn platform_suffix() -> Result<&'static str> {
     }
 }
 
-/// Fetch the latest release tag from GitHub API using curl.
-fn fetch_latest_version() -> Result<String> {
-    let output = Command::new("curl")
-        .args([
-            "-sSf",
-            &format!("https://api.github.com/repos/{REPO}/releases/latest"),
-        ])
+#[derive(Clone, Copy)]
+struct CurlTimeout {
+    connect_secs: u64,
+    max_secs: u64,
+}
+
+fn fetch_latest_version_from_github(
+    timeout: Option<CurlTimeout>,
+    curl_context: &'static str,
+) -> Result<String> {
+    let mut command = Command::new("curl");
+    command.arg("-sSf");
+    if let Some(timeout) = timeout {
+        command
+            .args(["--connect-timeout", &timeout.connect_secs.to_string()])
+            .args(["--max-time", &timeout.max_secs.to_string()]);
+    }
+    let output = command
+        .arg(format!(
+            "https://api.github.com/repos/{REPO}/releases/latest"
+        ))
         .output()
-        .context("Failed to run curl. Is curl installed?")?;
+        .context(curl_context)?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -42,6 +56,11 @@ fn fetch_latest_version() -> Result<String> {
         .context("No tag_name in GitHub API response")?;
 
     Ok(tag.strip_prefix('v').unwrap_or(tag).to_string())
+}
+
+/// Fetch the latest release tag from GitHub API using curl.
+fn fetch_latest_version() -> Result<String> {
+    fetch_latest_version_from_github(None, "Failed to run curl. Is curl installed?")
 }
 
 /// Download a URL to a file path using curl.
@@ -275,31 +294,13 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 
 /// Fetch latest version with a timeout (for background checks).
 fn fetch_latest_version_with_timeout() -> Result<String> {
-    let output = Command::new("curl")
-        .args([
-            "-sSf",
-            "--connect-timeout",
-            "5",
-            "--max-time",
-            "10",
-            &format!("https://api.github.com/repos/{REPO}/releases/latest"),
-        ])
-        .output()
-        .context("Failed to run curl")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Failed to fetch latest release: {}", stderr.trim());
-    }
-
-    let body: serde_json::Value =
-        serde_json::from_slice(&output.stdout).context("Failed to parse GitHub API response")?;
-
-    let tag = body["tag_name"]
-        .as_str()
-        .context("No tag_name in GitHub API response")?;
-
-    Ok(tag.strip_prefix('v').unwrap_or(tag).to_string())
+    fetch_latest_version_from_github(
+        Some(CurlTimeout {
+            connect_secs: 5,
+            max_secs: 10,
+        }),
+        "Failed to run curl",
+    )
 }
 
 /// Hidden subcommand handler: fetch the latest version and update the cache.
