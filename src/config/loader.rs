@@ -130,6 +130,19 @@ mod tests {
         path
     }
 
+    fn three_layer_env(dir: &tempfile::TempDir) -> (LayeredEnv, DiscoveredPaths) {
+        let local_path = write_yaml(dir, "local.yaml", "default_model: from-local\n");
+        let project_path = write_yaml(dir, "project.yaml", "default_model: from-project\n");
+        let user_path = write_yaml(dir, "user.yaml", "default_model: from-user\n");
+        let paths = DiscoveredPaths {
+            user: Some(user_path),
+            project: Some(project_path),
+            project_local: Some(local_path),
+        };
+        let env = LayeredEnv::load(&paths).unwrap();
+        (env, paths)
+    }
+
     #[test]
     fn test_lookup_prefers_project_local_over_project() {
         let dir = tempfile::tempdir().unwrap();
@@ -307,15 +320,7 @@ mod tests {
         // Pins precedence project_local > project > user (file layers only;
         // env precedence is asserted separately).
         let dir = tempfile::tempdir().unwrap();
-        let local_path = write_yaml(&dir, "local.yaml", "default_model: from-local\n");
-        let project_path = write_yaml(&dir, "project.yaml", "default_model: from-project\n");
-        let user_path = write_yaml(&dir, "user.yaml", "default_model: from-user\n");
-        let paths = DiscoveredPaths {
-            user: Some(user_path),
-            project: Some(project_path),
-            project_local: Some(local_path),
-        };
-        let env = LayeredEnv::load(&paths).unwrap();
+        let (env, paths) = three_layer_env(&dir);
 
         // Top layer wins.
         let (val, src) = env.lookup("CONSULT_LLM_DEFAULT_MODEL").unwrap();
@@ -357,15 +362,7 @@ mod tests {
         // assert it surfaces with Source::Env. We test both directions:
         //   (a) a real env override on a config-known key beats every file.
         //   (b) an env-only key with no file backing is observed.
-        let local_path = write_yaml(&dir, "local.yaml", "default_model: from-local\n");
-        let project_path = write_yaml(&dir, "project.yaml", "default_model: from-project\n");
-        let user_path = write_yaml(&dir, "user.yaml", "default_model: from-user\n");
-        let paths = DiscoveredPaths {
-            user: Some(user_path),
-            project: Some(project_path),
-            project_local: Some(local_path),
-        };
-        let env = LayeredEnv::load(&paths).unwrap();
+        let (env, _paths) = three_layer_env(&dir);
 
         // (a) override the config-known key from the real process env.
         // SAFETY: tests in this binary run on multiple threads but no other

@@ -44,6 +44,26 @@ pub fn discover(cwd: &Path, home: Option<&Path>) -> DiscoveredPaths {
 mod tests {
     use super::*;
 
+    enum UserConfigStyle {
+        Xdg,
+        Legacy,
+    }
+
+    fn write_user_config(home: &Path, style: UserConfigStyle) {
+        let user_config_dir = match style {
+            UserConfigStyle::Xdg => home.join(".config").join("consult-llm"),
+            UserConfigStyle::Legacy => home.join(".consult-llm"),
+        };
+        std::fs::create_dir_all(&user_config_dir).unwrap();
+        std::fs::write(user_config_dir.join("config.yaml"), "").unwrap();
+    }
+
+    fn discover_from_project_subdir(home: &Path) -> DiscoveredPaths {
+        let cwd = home.join("project");
+        std::fs::create_dir_all(&cwd).unwrap();
+        discover(&cwd, Some(home))
+    }
+
     #[test]
     fn test_discover_walks_through_git_root() {
         // A nested git repo should not block discovery of a config in an
@@ -105,13 +125,8 @@ mod tests {
     fn test_discover_user_config() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let user_config_dir = home.join(".config").join("consult-llm");
-        std::fs::create_dir_all(&user_config_dir).unwrap();
-        std::fs::write(user_config_dir.join("config.yaml"), "").unwrap();
-
-        let cwd = home.join("project");
-        std::fs::create_dir_all(&cwd).unwrap();
-        let paths = discover(&cwd, Some(&home));
+        write_user_config(&home, UserConfigStyle::Xdg);
+        let paths = discover_from_project_subdir(&home);
         assert!(paths.user.is_some());
     }
 
@@ -119,13 +134,8 @@ mod tests {
     fn test_discover_legacy_user_config() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
-        let user_config_dir = home.join(".consult-llm");
-        std::fs::create_dir_all(&user_config_dir).unwrap();
-        std::fs::write(user_config_dir.join("config.yaml"), "").unwrap();
-
-        let cwd = home.join("project");
-        std::fs::create_dir_all(&cwd).unwrap();
-        let paths = discover(&cwd, Some(&home));
+        write_user_config(&home, UserConfigStyle::Legacy);
+        let paths = discover_from_project_subdir(&home);
         assert!(paths.user.is_some());
     }
 

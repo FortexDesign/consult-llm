@@ -116,6 +116,15 @@ mod tests {
     use super::super::test_helpers::{env_from, make_providers};
     use super::*;
 
+    fn api_providers_without_keys() -> HashMap<Provider, ProviderRuntimeConfig> {
+        make_providers(&[
+            (Provider::Gemini, None, Backend::Api),
+            (Provider::OpenAI, None, Backend::Api),
+            (Provider::DeepSeek, None, Backend::Api),
+            (Provider::MiniMax, None, Backend::Api),
+        ])
+    }
+
     #[test]
     fn test_filter_by_availability_api_with_key() {
         let models = vec![
@@ -140,12 +149,7 @@ mod tests {
             "gpt-5.2".into(),
             "deepseek-v4-pro".into(),
         ];
-        let providers = make_providers(&[
-            (Provider::Gemini, None, Backend::Api),
-            (Provider::OpenAI, None, Backend::Api),
-            (Provider::DeepSeek, None, Backend::Api),
-            (Provider::MiniMax, None, Backend::Api),
-        ]);
+        let providers = api_providers_without_keys();
         let result = filter_by_availability(&models, &providers);
         assert!(result.is_empty());
     }
@@ -181,12 +185,7 @@ mod tests {
     #[test]
     fn test_filter_by_availability_unknown_prefix_rejected() {
         let models = vec!["custom-model".into()];
-        let providers = make_providers(&[
-            (Provider::Gemini, None, Backend::Api),
-            (Provider::OpenAI, None, Backend::Api),
-            (Provider::DeepSeek, None, Backend::Api),
-            (Provider::MiniMax, None, Backend::Api),
-        ]);
+        let providers = api_providers_without_keys();
         let result = filter_by_availability(&models, &providers);
         assert!(result.is_empty());
     }
