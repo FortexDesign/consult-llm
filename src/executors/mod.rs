@@ -67,6 +67,54 @@ pub fn append_file_refs(text: &str, file_paths: Option<&[PathBuf]>) -> String {
     }
 }
 
+/// Prepared stdin prompt and original request fields for CLI executors.
+pub struct PreparedCliRequest {
+    pub model: String,
+    pub prompt: String,
+    pub system_prompt: String,
+    pub stdin_prompt: String,
+    pub file_paths: Option<Vec<PathBuf>>,
+    pub thread_id: Option<String>,
+    pub spool: Arc<Mutex<RunSpool>>,
+}
+
+/// Build the stdin prompt from an execution request.
+///
+/// Appends file context via `append_file_context`, then prepends the system
+/// prompt only when there is no thread id (resume sessions keep prior context).
+pub fn prepare_cli_request(
+    req: types::ExecutionRequest,
+    append_file_context: fn(&str, Option<&[PathBuf]>) -> String,
+) -> PreparedCliRequest {
+    let types::ExecutionRequest {
+        prompt,
+        model,
+        system_prompt,
+        file_paths,
+        thread_id,
+        spool,
+    } = req;
+    let fps = file_paths.as_deref();
+    let tid = thread_id.as_deref();
+
+    let message = append_file_context(&prompt, fps);
+    let stdin_prompt = if tid.is_some() {
+        message
+    } else {
+        format!("{system_prompt}\n\n{message}")
+    };
+
+    PreparedCliRequest {
+        model,
+        prompt,
+        system_prompt,
+        stdin_prompt,
+        file_paths,
+        thread_id,
+        spool,
+    }
+}
+
 /// Build CLI args for extra directories (worktree + external file paths).
 pub fn build_extra_dir_args(file_paths: Option<&[PathBuf]>, flag: &str) -> Vec<String> {
     let cwd = std::env::current_dir().unwrap_or_default();

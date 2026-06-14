@@ -2,11 +2,11 @@ use smallvec::SmallVec;
 use std::path::PathBuf;
 
 use super::cursor_models;
-use super::run_cli_executor;
 use super::stream::{
     ParsedStreamEvent, StreamEvents, parse_json_line, tool_label, usage_event_from_keys,
 };
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
+use super::{prepare_cli_request, run_cli_executor};
 pub struct CursorCliExecutor {
     capabilities: LlmExecutorCapabilities,
     codex_reasoning_effort: String,
@@ -263,26 +263,11 @@ impl LlmExecutor for CursorCliExecutor {
     }
 
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
-        let ExecutionRequest {
-            prompt,
-            model,
-            system_prompt,
-            file_paths,
-            thread_id,
-            spool,
-        } = req;
-        let fps = file_paths.as_deref();
-        let tid = thread_id.as_deref();
+        let prepared = prepare_cli_request(req, append_files);
+        let tid = prepared.thread_id.as_deref();
 
-        let message_with_files = append_files(&prompt, fps);
-        let message = if tid.is_some() {
-            message_with_files
-        } else {
-            format!("{system_prompt}\n\n{message_with_files}")
-        };
-
-        let candidate = map_cursor_model(&model, &self.codex_reasoning_effort);
-        let base = model.replace("-preview", "");
+        let candidate = map_cursor_model(&prepared.model, &self.codex_reasoning_effort);
+        let base = prepared.model.replace("-preview", "");
         let cursor_model = if model_requires_reasoning_suffix(&base) {
             let list = cursor_models::available_models();
             cursor_models::resolve_model(&candidate, &base, &list)?
@@ -310,10 +295,10 @@ impl LlmExecutor for CursorCliExecutor {
         let mut result = run_cli_executor(
             "cursor-agent",
             &args,
-            &message,
-            &prompt,
-            &system_prompt,
-            spool,
+            &prepared.stdin_prompt,
+            &prepared.prompt,
+            &prepared.system_prompt,
+            prepared.spool,
             parse_cursor_line,
         )?;
         // Cursor doesn't always emit a session ID; preserve the input thread_id

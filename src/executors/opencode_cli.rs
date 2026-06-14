@@ -3,7 +3,7 @@ use super::stream::{
     usage_event_from_keys,
 };
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{append_file_refs, run_cli_executor};
+use super::{append_file_refs, prepare_cli_request, run_cli_executor};
 
 pub struct OpenCodeCliExecutor {
     capabilities: LlmExecutorCapabilities,
@@ -188,31 +188,20 @@ impl LlmExecutor for OpenCodeCliExecutor {
     }
 
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
-        let ExecutionRequest {
-            prompt,
-            model,
-            system_prompt,
-            file_paths,
-            thread_id,
-            spool,
-        } = req;
-        let fps = file_paths.as_deref();
-        let tid = thread_id.as_deref();
+        let prepared = prepare_cli_request(req, append_file_refs);
+        let fps = prepared.file_paths.as_deref();
+        let tid = prepared.thread_id.as_deref();
 
-        let message = append_file_refs(&prompt, fps);
-        let full_prompt = if tid.is_some() {
-            message
-        } else {
-            format!("{system_prompt}\n\n{message}")
-        };
-
-        let opencode_model = if model.starts_with(&format!("{}/", self.provider_prefix)) {
+        let opencode_model = if prepared
+            .model
+            .starts_with(&format!("{}/", self.provider_prefix))
+        {
             // Model already includes the provider prefix
             // (e.g. "openrouter/xiaomi/mimo-v2.5-pro" with provider_prefix "openrouter").
             // Pass through as-is to avoid double-prefixing.
-            model.to_string()
+            prepared.model.to_string()
         } else {
-            format!("{}/{model}", self.provider_prefix)
+            format!("{}/{}", self.provider_prefix, prepared.model)
         };
 
         let mut args: Vec<String> = vec![
@@ -240,10 +229,10 @@ impl LlmExecutor for OpenCodeCliExecutor {
         run_cli_executor(
             "opencode",
             &args,
-            &full_prompt,
-            &prompt,
-            &system_prompt,
-            spool,
+            &prepared.stdin_prompt,
+            &prepared.prompt,
+            &prepared.system_prompt,
+            prepared.spool,
             parse_opencode_line,
         )
     }

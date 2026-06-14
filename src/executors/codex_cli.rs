@@ -1,6 +1,6 @@
 use super::stream::{ParsedStreamEvent, StreamEvents, parse_json_line, usage_event_from_keys};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{append_file_refs, build_extra_dir_args, run_cli_executor};
+use super::{append_file_refs, build_extra_dir_args, prepare_cli_request, run_cli_executor};
 pub struct CodexCliExecutor {
     capabilities: LlmExecutorCapabilities,
     codex_reasoning_effort: String,
@@ -139,23 +139,9 @@ impl LlmExecutor for CodexCliExecutor {
     }
 
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
-        let ExecutionRequest {
-            prompt,
-            model,
-            system_prompt,
-            file_paths,
-            thread_id,
-            spool,
-        } = req;
-        let fps = file_paths.as_deref();
-        let tid = thread_id.as_deref();
-
-        let message = append_file_refs(&prompt, fps);
-        let full_prompt = if tid.is_some() {
-            message
-        } else {
-            format!("{system_prompt}\n\n{message}")
-        };
+        let prepared = prepare_cli_request(req, append_file_refs);
+        let fps = prepared.file_paths.as_deref();
+        let tid = prepared.thread_id.as_deref();
 
         let mut args: Vec<String> = vec!["exec".to_string()];
         if tid.is_some() {
@@ -174,7 +160,7 @@ impl LlmExecutor for CodexCliExecutor {
         }
 
         args.push("-m".to_string());
-        args.push(model.clone());
+        args.push(prepared.model.clone());
         args.extend(self.extra_args.iter().cloned());
         if let Some(t) = tid {
             args.push(t.to_string());
@@ -183,10 +169,10 @@ impl LlmExecutor for CodexCliExecutor {
         run_cli_executor(
             "codex",
             &args,
-            &full_prompt,
-            &prompt,
-            &system_prompt,
-            spool,
+            &prepared.stdin_prompt,
+            &prepared.prompt,
+            &prepared.system_prompt,
+            prepared.spool,
             parse_codex_line,
         )
     }

@@ -2,7 +2,7 @@ use super::stream::{
     ParsedStreamEvent, StreamEvents, parse_json_line, tool_label, usage_event_from_keys,
 };
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{append_file_refs, build_extra_dir_args, run_cli_executor};
+use super::{append_file_refs, build_extra_dir_args, prepare_cli_request, run_cli_executor};
 
 pub struct GeminiCliExecutor {
     capabilities: LlmExecutorCapabilities,
@@ -142,27 +142,13 @@ impl LlmExecutor for GeminiCliExecutor {
     }
 
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
-        let ExecutionRequest {
-            prompt,
-            model,
-            system_prompt,
-            file_paths,
-            thread_id,
-            spool,
-        } = req;
-        let fps = file_paths.as_deref();
-        let tid = thread_id.as_deref();
-
-        let message_with_files = append_file_refs(&prompt, fps);
-        let message = if tid.is_some() {
-            message_with_files
-        } else {
-            format!("{system_prompt}\n\n{message_with_files}")
-        };
+        let prepared = prepare_cli_request(req, append_file_refs);
+        let fps = prepared.file_paths.as_deref();
+        let tid = prepared.thread_id.as_deref();
 
         let mut args: Vec<String> = vec![
             "-m".to_string(),
-            model.clone(),
+            prepared.model.clone(),
             "-o".to_string(),
             "stream-json".to_string(),
         ];
@@ -179,10 +165,10 @@ impl LlmExecutor for GeminiCliExecutor {
         run_cli_executor(
             "gemini",
             &args,
-            &message,
-            &prompt,
-            &system_prompt,
-            spool,
+            &prepared.stdin_prompt,
+            &prepared.prompt,
+            &prepared.system_prompt,
+            prepared.spool,
             parse_gemini_line,
         )
         .map_err(|e| {
