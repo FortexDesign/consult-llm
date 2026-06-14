@@ -196,6 +196,19 @@ mod tests {
         assert_eq!(serialized, fixture);
     }
 
+    fn expected_legacy_entries() -> Vec<GroupEntry> {
+        vec![
+            GroupEntry {
+                model: "gemini-2.5-pro".into(),
+                thread_id: "api_y".into(),
+            },
+            GroupEntry {
+                model: "gpt-5.2".into(),
+                thread_id: "api_x".into(),
+            },
+        ]
+    }
+
     #[test]
     fn legacy_group_loads_from_member_order() {
         let json = r#"{
@@ -204,19 +217,7 @@ mod tests {
             "member_order":["gemini-2.5-pro","gpt-5.2"]
         }"#;
         let group: StoredGroup = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            group.entries,
-            vec![
-                GroupEntry {
-                    model: "gemini-2.5-pro".into(),
-                    thread_id: "api_y".into(),
-                },
-                GroupEntry {
-                    model: "gpt-5.2".into(),
-                    thread_id: "api_x".into(),
-                },
-            ]
-        );
+        assert_eq!(group.entries, expected_legacy_entries());
     }
 
     #[test]
@@ -226,19 +227,7 @@ mod tests {
             "members":{"gpt-5.2":"api_x","gemini-2.5-pro":"api_y"}
         }"#;
         let group: StoredGroup = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            group.entries,
-            vec![
-                GroupEntry {
-                    model: "gemini-2.5-pro".into(),
-                    thread_id: "api_y".into(),
-                },
-                GroupEntry {
-                    model: "gpt-5.2".into(),
-                    thread_id: "api_x".into(),
-                },
-            ]
-        );
+        assert_eq!(group.entries, expected_legacy_entries());
     }
 
     #[test]
