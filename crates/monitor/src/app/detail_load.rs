@@ -16,31 +16,7 @@ impl AppState {
         let (events, offset) = load_run_events(&run_id);
         let is_active = self.is_run_active(&run_id);
 
-        let mut detail = DetailState {
-            run_id: run_id.clone(),
-            events: Vec::new(),
-            file_offset: offset,
-            scroll: if is_active { usize::MAX } else { 0 },
-            auto_scroll: is_active,
-            model: None,
-            backend: None,
-            reasoning_effort: None,
-            started_at: None,
-            duration_ms: None,
-            success: None,
-            project: None,
-            task_mode: None,
-            error: None,
-            last_stage: None,
-            cached_lines: None,
-            cached_event_count: 0,
-            cached_width: 0,
-            cached_has_active_tools: false,
-            show_system_prompt: false,
-            response_line_offset: None,
-            siblings: Vec::new(),
-            sibling_index: 0,
-        };
+        let mut detail = DetailState::new(run_id.clone(), offset, is_active);
 
         if let Some(meta) = load_run_meta(&run_id) {
             apply_run_meta_to_detail(&mut detail, &meta);
@@ -333,31 +309,7 @@ mod tests {
     use consult_llm_core::monitoring::ProgressStage;
 
     fn detail_state() -> DetailState {
-        DetailState {
-            run_id: "run-1".into(),
-            events: Vec::new(),
-            file_offset: 0,
-            scroll: 0,
-            auto_scroll: false,
-            model: None,
-            backend: None,
-            reasoning_effort: None,
-            started_at: None,
-            duration_ms: None,
-            success: None,
-            project: None,
-            task_mode: None,
-            error: None,
-            last_stage: None,
-            cached_lines: None,
-            cached_event_count: 0,
-            cached_width: 0,
-            cached_has_active_tools: false,
-            show_system_prompt: false,
-            response_line_offset: None,
-            siblings: Vec::new(),
-            sibling_index: 0,
-        }
+        DetailState::new("run-1".into(), 0, false)
     }
 
     fn run_event(kind: RunEventKind) -> RunEvent {

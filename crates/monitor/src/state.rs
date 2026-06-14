@@ -87,6 +87,36 @@ pub(crate) struct DetailState {
     pub(crate) sibling_index: usize,
 }
 
+impl DetailState {
+    pub(crate) fn new(run_id: String, file_offset: u64, is_active: bool) -> Self {
+        Self {
+            run_id,
+            events: Vec::new(),
+            file_offset,
+            scroll: if is_active { usize::MAX } else { 0 },
+            auto_scroll: is_active,
+            model: None,
+            backend: None,
+            reasoning_effort: None,
+            started_at: None,
+            duration_ms: None,
+            success: None,
+            project: None,
+            task_mode: None,
+            error: None,
+            last_stage: None,
+            cached_lines: None,
+            cached_event_count: 0,
+            cached_width: 0,
+            cached_has_active_tools: false,
+            show_system_prompt: false,
+            response_line_offset: None,
+            siblings: Vec::new(),
+            sibling_index: 0,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Focus {
     Active,
