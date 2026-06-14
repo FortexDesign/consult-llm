@@ -13,7 +13,7 @@ use crate::state::{
 };
 
 use super::blocks::{live_spinner_label, normalize_events, render_blocks, split_at_width};
-use super::compute_detail_layout;
+use super::{compute_detail_layout, push_live_follow_spans, render_detail_body, visible_detail_lines};
 
 pub(in crate::ui) fn render_detail_view(
     frame: &mut ratatui::Frame,
@@ -266,38 +266,22 @@ pub(in crate::ui) fn render_detail_view(
     }
 
     // ── Scroll / viewport ───────────────────────────────────────────
-    let inner_height = chunks[1].height.saturating_sub(2) as usize;
-    let total_lines = lines.len();
-    let max_scroll = total_lines.saturating_sub(inner_height);
-    state.detail_inner_height = inner_height;
-
-    let effective_scroll = if let AppMode::Detail(ref mut detail) = state.mode {
-        detail.scroll = detail.scroll.min(max_scroll);
-        // Auto-enable follow when scrolled to bottom of a live run
-        if is_live && detail.scroll >= max_scroll {
-            detail.auto_scroll = true;
-        }
-        detail.scroll
+    let visible_lines = if let AppMode::Detail(ref mut detail) = state.mode {
+        visible_detail_lines(
+            lines,
+            chunks[1],
+            &mut detail.scroll,
+            &mut detail.auto_scroll,
+            is_live,
+            &mut state.detail_inner_height,
+        )
     } else {
-        0
+        Vec::new()
     };
 
-    let visible_lines: Vec<Line> = lines
-        .into_iter()
-        .skip(effective_scroll)
-        .take(inner_height)
-        .collect();
-
-    let content = Paragraph::new(visible_lines).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(SEPARATOR)),
-    );
-    frame.render_widget(content, chunks[1]);
+    render_detail_body(frame, chunks[1], visible_lines);
 
     // ── Status bar ──────────────────────────────────────────────────
-    let is_live = state.is_run_active(&run_id);
     let follow_on = matches!(state.mode, AppMode::Detail(ref d) if d.auto_scroll);
 
     let mut bar_spans = vec![
@@ -312,19 +296,7 @@ pub(in crate::ui) fn render_detail_view(
         Span::styled("s", Style::default().fg(TEAL)),
         Span::styled(" sys prompt", Style::default().fg(DIM_WHITE)),
     ];
-    if is_live {
-        bar_spans.push(Span::styled("  G", Style::default().fg(TEAL)));
-        bar_spans.push(Span::styled(" follow  ", Style::default().fg(DIM_WHITE)));
-        if follow_on {
-            bar_spans.push(Span::styled(
-                " FOLLOW ",
-                Style::default()
-                    .fg(BG)
-                    .bg(TEAL)
-                    .add_modifier(Modifier::BOLD),
-            ));
-        }
-    }
+    push_live_follow_spans(&mut bar_spans, is_live, follow_on);
 
     // Sibling indicator (right-aligned)
     let sibling_indicator = if let AppMode::Detail(ref d) = state.mode {
