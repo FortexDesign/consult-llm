@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use super::api_chat::ChatStreamHandler;
-use super::api_common::{ApiChatSession, ApiTextMessage, warn_unsupported_file_paths};
+use super::api_common::{ApiTextMessage, prepare_api_turn};
 use super::api_transport::{StreamLabels, StreamRequest, run_stream};
 use super::tag_splitter::TagSplitter;
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
@@ -89,18 +89,7 @@ impl LlmExecutor for ApiExecutor {
     }
 
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
-        let ExecutionRequest {
-            prompt,
-            model,
-            system_prompt,
-            file_paths,
-            thread_id,
-            spool,
-        } = req;
-
-        warn_unsupported_file_paths(&model, file_paths.as_ref());
-
-        let session = ApiChatSession::start(thread_id, &spool, &system_prompt, &prompt)?;
+        let turn = prepare_api_turn(req)?;
 
         let base = if self.base_url.ends_with('/') {
             self.base_url.clone()
@@ -109,13 +98,13 @@ impl LlmExecutor for ApiExecutor {
         };
         let url = format!("{base}chat/completions");
 
-        let mut messages = vec![ApiTextMessage::system(system_prompt.clone())];
-        messages.extend(session.transcript_messages(&prompt));
+        let mut messages = vec![ApiTextMessage::system(turn.system_prompt().to_string())];
+        messages.extend(turn.transcript_messages());
 
-        let extra_body = extra_body(self.runtime, &model);
+        let extra_body = extra_body(self.runtime, turn.model());
 
         let request = ChatRequest {
-            model: model.clone(),
+            model: turn.model().to_string(),
             messages,
             stream: true,
             stream_options: Some(StreamOptions {
@@ -129,7 +118,7 @@ impl LlmExecutor for ApiExecutor {
             .runtime
             .think_tags
             .map(|tags| TagSplitter::new(tags.start, tags.end));
-        let handler = ChatStreamHandler::new(splitter, &spool);
+        let handler = ChatStreamHandler::new(splitter, turn.spool());
 
         let outcome = run_stream(
             StreamRequest {
@@ -144,12 +133,12 @@ impl LlmExecutor for ApiExecutor {
                 ],
                 body,
                 idle_timeout: self.idle_timeout,
-                model: model.clone(),
+                model: turn.model().to_string(),
                 labels: LABELS,
             },
             handler,
         )?;
 
-        session.commit_turn(prompt, model, outcome.response, outcome.usage)
+        turn.commit(outcome.response, outcome.usage)
     }
 }

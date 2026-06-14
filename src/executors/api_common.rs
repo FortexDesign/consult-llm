@@ -1,11 +1,11 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use consult_llm_core::monitoring::RunSpool;
 use consult_llm_core::stream_events::ParsedStreamEvent;
 use serde::Serialize;
 
 use super::thread_store;
-use super::types::{ExecuteResult, Usage};
+use super::types::{ExecuteResult, ExecutionRequest, Usage};
 use crate::logger::log_to_file;
 
 #[derive(Serialize)]
@@ -138,6 +138,59 @@ impl ApiChatSession {
             usage,
             thread_id: Some(self.thread_id.clone()),
         })
+    }
+}
+
+pub struct PreparedApiTurn {
+    session: ApiChatSession,
+    prompt: String,
+    model: String,
+    system_prompt: String,
+    spool: Arc<Mutex<RunSpool>>,
+}
+
+pub fn prepare_api_turn(req: ExecutionRequest) -> anyhow::Result<PreparedApiTurn> {
+    let ExecutionRequest {
+        prompt,
+        model,
+        system_prompt,
+        file_paths,
+        thread_id,
+        spool,
+    } = req;
+
+    warn_unsupported_file_paths(&model, file_paths.as_ref());
+    let session = ApiChatSession::start(thread_id, &spool, &system_prompt, &prompt)?;
+
+    Ok(PreparedApiTurn {
+        session,
+        prompt,
+        model,
+        system_prompt,
+        spool,
+    })
+}
+
+impl PreparedApiTurn {
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn system_prompt(&self) -> &str {
+        &self.system_prompt
+    }
+
+    pub fn spool(&self) -> &Arc<Mutex<RunSpool>> {
+        &self.spool
+    }
+
+    pub fn transcript_messages(&self) -> Vec<ApiTextMessage> {
+        self.session.transcript_messages(&self.prompt)
+    }
+
+    pub fn commit(self, response: String, usage: Option<Usage>) -> anyhow::Result<ExecuteResult> {
+        self.session
+            .commit_turn(self.prompt, self.model, response, usage)
     }
 }
 
