@@ -231,6 +231,47 @@ fn shorten_thread_id(thread_id: Option<&str>) -> String {
     }
 }
 
+struct HistoryRowTail {
+    backend: String,
+    duration: String,
+    tokens: String,
+    cost: String,
+    success: bool,
+}
+
+fn history_row_tail_cells(
+    tail: HistoryRowTail,
+    duration_col_width: u16,
+    tokens_col_width: u16,
+    cost_col_width: u16,
+) -> [Line<'static>; 5] {
+    let status_icon = if tail.success { "\u{2713}" } else { "\u{2717}" };
+    let status_color = if tail.success { GREEN } else { RED };
+    [
+        Line::from(Span::styled(tail.backend, Style::default().fg(DIM))),
+        Line::from(Span::styled(
+            format!(
+                "{:>width$}",
+                tail.duration,
+                width = duration_col_width as usize
+            ),
+            Style::default().fg(DIM_WHITE),
+        )),
+        Line::from(Span::styled(
+            format!("{:>width$}", tail.tokens, width = tokens_col_width as usize),
+            Style::default().fg(DIM),
+        )),
+        Line::from(Span::styled(
+            format!("{:>width$}", tail.cost, width = cost_col_width as usize),
+            Style::default().fg(DIM),
+        )),
+        Line::from(Span::styled(
+            status_icon.to_string(),
+            Style::default().fg(status_color),
+        )),
+    ]
+}
+
 fn render_history_table(frame: &mut ratatui::Frame, area: Rect, state: &mut AppState) {
     let duration_col_width: u16 = 10;
     let tokens_col_width: u16 = 13;
@@ -268,12 +309,6 @@ fn render_history_table(frame: &mut ratatui::Frame, area: Rect, state: &mut AppS
         .map(|display_row| match display_row {
             HistoryDisplayRow::Single(idx) => {
                 let record = &state.history[*idx];
-                let status_icon = if record.success {
-                    "\u{2713}"
-                } else {
-                    "\u{2717}"
-                };
-                let status_color = if record.success { GREEN } else { RED };
                 let duration_str = format_duration_friendly(record.duration_ms);
                 let tokens_str = format_tokens(record.tokens_in, record.tokens_out);
                 let cost_str = format_cost(
@@ -304,30 +339,18 @@ fn render_history_table(frame: &mut ratatui::Frame, area: Rect, state: &mut AppS
                     record.model.clone(),
                     Style::default().fg(DIM_WHITE),
                 )));
-                cells.push(Line::from(Span::styled(
-                    record.backend.clone(),
-                    Style::default().fg(DIM),
-                )));
-                cells.push(Line::from(Span::styled(
-                    format!(
-                        "{:>width$}",
-                        duration_str,
-                        width = duration_col_width as usize
-                    ),
-                    Style::default().fg(DIM_WHITE),
-                )));
-                cells.push(Line::from(Span::styled(
-                    format!("{:>width$}", tokens_str, width = tokens_col_width as usize),
-                    Style::default().fg(DIM),
-                )));
-                cells.push(Line::from(Span::styled(
-                    format!("{:>width$}", cost_str, width = cost_col_width as usize),
-                    Style::default().fg(DIM),
-                )));
-                cells.push(Line::from(Span::styled(
-                    status_icon.to_string(),
-                    Style::default().fg(status_color),
-                )));
+                cells.extend(history_row_tail_cells(
+                    HistoryRowTail {
+                        backend: record.backend.clone(),
+                        duration: duration_str,
+                        tokens: tokens_str,
+                        cost: cost_str,
+                        success: record.success,
+                    },
+                    duration_col_width,
+                    tokens_col_width,
+                    cost_col_width,
+                ));
                 Row::new(cells)
             }
             HistoryDisplayRow::ThreadSummary {
@@ -344,8 +367,6 @@ fn render_history_table(frame: &mut ratatui::Frame, area: Rect, state: &mut AppS
                 project,
                 ..
             } => {
-                let status_icon = if *success { "\u{2713}" } else { "\u{2717}" };
-                let status_color = if *success { GREEN } else { RED };
                 let duration_str = format_duration_friendly(*total_duration_ms);
                 let tokens_str = format_tokens(*total_tokens_in, *total_tokens_out);
                 let cost_str = match total_cost {
@@ -381,30 +402,18 @@ fn render_history_table(frame: &mut ratatui::Frame, area: Rect, state: &mut AppS
                     model_display,
                     Style::default().fg(DIM_WHITE),
                 )));
-                cells.push(Line::from(Span::styled(
-                    backend.clone(),
-                    Style::default().fg(DIM),
-                )));
-                cells.push(Line::from(Span::styled(
-                    format!(
-                        "{:>width$}",
-                        duration_str,
-                        width = duration_col_width as usize
-                    ),
-                    Style::default().fg(DIM_WHITE),
-                )));
-                cells.push(Line::from(Span::styled(
-                    format!("{:>width$}", tokens_str, width = tokens_col_width as usize),
-                    Style::default().fg(DIM),
-                )));
-                cells.push(Line::from(Span::styled(
-                    format!("{:>width$}", cost_str, width = cost_col_width as usize),
-                    Style::default().fg(DIM),
-                )));
-                cells.push(Line::from(Span::styled(
-                    status_icon,
-                    Style::default().fg(status_color),
-                )));
+                cells.extend(history_row_tail_cells(
+                    HistoryRowTail {
+                        backend: backend.clone(),
+                        duration: duration_str,
+                        tokens: tokens_str,
+                        cost: cost_str,
+                        success: *success,
+                    },
+                    duration_col_width,
+                    tokens_col_width,
+                    cost_col_width,
+                ));
                 Row::new(cells)
             }
         })
