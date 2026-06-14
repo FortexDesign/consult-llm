@@ -351,6 +351,24 @@ mod tests {
         state.ensure_filter_cache();
     }
 
+    fn mouse_action(
+        state: &AppState,
+        rows: &[RowInfo],
+        kind: MouseEventKind,
+        row: u16,
+    ) -> Option<Action> {
+        handle_mouse(
+            state,
+            rows,
+            mouse_event(kind, 5, row),
+            &PathBuf::from("/tmp/x"),
+        )
+    }
+
+    fn left_click(state: &AppState, rows: &[RowInfo], row: u16) -> Option<Action> {
+        mouse_action(state, rows, MouseEventKind::Down(MouseButton::Left), row)
+    }
+
     #[test]
     fn wheel_down_over_active_table_selects_next_row() {
         let (state, _rows) = make_state_with_active(3);
@@ -398,14 +416,8 @@ mod tests {
     #[test]
     fn click_active_row_selects() {
         let (state, rows) = make_state_with_active(5);
-        let dir = PathBuf::from("/tmp/x");
         // Click on visible row at y=3 (header at 0, data starts y=1, so idx=2).
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         assert!(matches!(action, Some(Action::SelectActiveRow(2))));
     }
 
@@ -414,13 +426,7 @@ mod tests {
         let (mut state, rows) = make_state_with_active(5);
         state.selected = 2;
         state.focus = Focus::Active;
-        let dir = PathBuf::from("/tmp/x");
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         match action {
             Some(Action::EnterDetail(id)) => assert_eq!(id, "run-2"),
             other => panic!("expected EnterDetail, got {other:?}"),
@@ -431,13 +437,7 @@ mod tests {
     fn click_active_when_history_focused_selects_and_switches_focus() {
         let (mut state, rows) = make_state_with_active(5);
         state.focus = Focus::History;
-        let dir = PathBuf::from("/tmp/x");
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         // idx=2, not the selected row → SelectActiveRow.
         assert!(matches!(action, Some(Action::SelectActiveRow(2))));
     }
@@ -447,13 +447,7 @@ mod tests {
         let (mut state, rows) = make_state_with_active(5);
         state.selected = 2;
         state.focus = Focus::History;
-        let dir = PathBuf::from("/tmp/x");
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         match action {
             Some(Action::EnterDetail(id)) => assert_eq!(id, "run-2"),
             other => panic!("expected EnterDetail, got {other:?}"),
@@ -466,14 +460,8 @@ mod tests {
         push_history(&mut state, 4);
         state.history_selected = 1;
         state.focus = Focus::Active;
-        let dir = PathBuf::from("/tmp/x");
         // y=14 → history idx=1.
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 14),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 14);
         // History row 1 is a Single record without a runs file on disk, so we
         // expect a Flash, not SelectHistoryRow. The point is the open path was
         // taken regardless of focus.
@@ -484,44 +472,26 @@ mod tests {
     fn click_history_row_emits_select_history() {
         let (mut state, rows) = make_state_with_active(2);
         push_history(&mut state, 4);
-        let dir = PathBuf::from("/tmp/x");
         // History rect starts at y=12; data row 0 is y=13. y=14 → idx=1.
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 14),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 14);
         assert!(matches!(action, Some(Action::SelectHistoryRow(1))));
     }
 
     #[test]
     fn click_on_active_header_is_ignored() {
         let (state, rows) = make_state_with_active(3);
-        let dir = PathBuf::from("/tmp/x");
         // y=0 is header
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 0),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 0);
         assert!(action.is_none());
     }
 
     #[test]
     fn click_below_last_active_row_is_ignored() {
         let (state, rows) = make_state_with_active(3);
-        let dir = PathBuf::from("/tmp/x");
         // Active rect goes 0..12; click at y=8 maps to idx=7, > 3 rows.
         // But it would still be inside history rect (y >= 12 only)? y=8 is in
         // active rect since rect.y=0, h=12. idx=7 fails row_infos bound.
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 8),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 8);
         assert!(action.is_none());
     }
 
@@ -529,13 +499,7 @@ mod tests {
     fn modal_swallows_mouse() {
         let (mut state, rows) = make_state_with_active(3);
         state.show_help = true;
-        let dir = PathBuf::from("/tmp/x");
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         assert!(action.is_none());
     }
 
@@ -543,13 +507,7 @@ mod tests {
     fn confirm_kill_swallows_mouse() {
         let (mut state, rows) = make_state_with_active(3);
         state.mode = AppMode::ConfirmKillProcess(123);
-        let dir = PathBuf::from("/tmp/x");
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         assert!(action.is_none());
     }
 
@@ -574,14 +532,8 @@ mod tests {
         state.table_state.select(Some(15));
         // Force the inner offset to 10. ratatui's TableState exposes .offset_mut().
         *state.table_state.offset_mut() = 10;
-        let dir = PathBuf::from("/tmp/x");
         // y=3 → visible idx=2 → data idx = 10+2 = 12
-        let action = handle_mouse(
-            &state,
-            &rows,
-            mouse_event(MouseEventKind::Down(MouseButton::Left), 5, 3),
-            &dir,
-        );
+        let action = left_click(&state, &rows, 3);
         assert!(matches!(action, Some(Action::SelectActiveRow(12))));
     }
 
