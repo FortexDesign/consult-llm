@@ -148,7 +148,7 @@ mod tests {
 
     use super::super::anthropic_api::AnthropicApiExecutor;
     use super::super::api::ApiExecutor;
-    use super::super::types::{ExecutionRequest, LlmExecutor};
+    use super::super::types::{ExecuteResult, ExecutionRequest, LlmExecutor};
     use super::*;
     use crate::models::{ApiProtocol, Provider};
 
@@ -308,33 +308,48 @@ mod tests {
         }
     }
 
-    #[test]
-    fn run_stream_honors_terminal_event_from_eof_flush() {
-        let response = http_response(b"data: stop");
+    fn run_recording_stream(response_body: &[u8], stop_on: &'static str) -> Vec<String> {
+        let response = http_response(response_body);
         let (base, _recorded, _headers) = start_mock_server(response);
-        let seen = run_stream(
+        run_stream(
             recording_stream_request(base),
             RecordingHandler {
                 seen: Vec::new(),
-                stop_on: "stop",
+                stop_on,
             },
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    fn execute_openai_compat_mock(
+        response_body: &[u8],
+        provider: Provider,
+        api_key: &str,
+        req: ExecutionRequest,
+    ) -> (ExecuteResult, serde_json::Value) {
+        let (base, recorded, _headers) = start_mock_server(http_response(response_body));
+        let executor = ApiExecutor::new(
+            ureq::Agent::new_with_defaults(),
+            api_key.to_string(),
+            Some(format!("{base}/custom/")),
+            std::time::Duration::from_secs(5),
+            runtime_for(provider),
+        );
+        let result = executor.execute(req).expect("execute");
+        let body: serde_json::Value =
+            serde_json::from_slice(&recorded.lock().unwrap()).expect("req json");
+        (result, body)
+    }
+
+    #[test]
+    fn run_stream_honors_terminal_event_from_eof_flush() {
+        let seen = run_recording_stream(b"data: stop", "stop");
         assert_eq!(seen, vec!["stop"]);
     }
 
     #[test]
     fn run_stream_skips_flush_after_in_loop_stop() {
-        let response = http_response(b"data: stop\n\ndata: later");
-        let (base, _recorded, _headers) = start_mock_server(response);
-        let seen = run_stream(
-            recording_stream_request(base),
-            RecordingHandler {
-                seen: Vec::new(),
-                stop_on: "stop",
-            },
-        )
-        .unwrap();
+        let seen = run_recording_stream(b"data: stop\n\ndata: later", "stop");
         assert_eq!(seen, vec!["stop"]);
     }
 
@@ -412,20 +427,10 @@ data: {\"choices\":[{\"delta\":{\"content\":\"ing</thought>Hello\"}}]}\n\n\
 data: {\"choices\":[{\"delta\":{\"content\":\" world\"},\"finish_reason\":\"stop\"}]}\n\n\
 data: [DONE]\n\n\
 ";
-        let (base, recorded, _headers) = start_mock_server(http_response(gemini_sse));
-        let gemini = ApiExecutor::new(
-            ureq::Agent::new_with_defaults(),
-            "test-gemini-key".to_string(),
-            Some(format!("{base}/custom/")),
-            std::time::Duration::from_secs(5),
-            runtime_for(Provider::Gemini),
-        );
         let (req, _spool) = build_request_with_spool("hi", "gemini-2.5-pro", spool);
-        let result = gemini.execute(req).expect("gemini execute");
+        let (result, body) =
+            execute_openai_compat_mock(gemini_sse, Provider::Gemini, "test-gemini-key", req);
         assert_eq!(result.response, "Hello world");
-
-        let body: serde_json::Value =
-            serde_json::from_slice(&recorded.lock().unwrap()).expect("gemini req json");
         assert!(body.get("extra_body").is_none());
         assert_eq!(
             recorded_thinking_events("run-gemini-2.5-pro"),
@@ -440,20 +445,10 @@ data: [DONE]\n\n\
 data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\n\
 data: [DONE]\n\n\
 ";
-        let (base, recorded, _headers) = start_mock_server(http_response(gemini_sse));
-        let gemini = ApiExecutor::new(
-            ureq::Agent::new_with_defaults(),
-            "test-gemini-key".to_string(),
-            Some(format!("{base}/custom/")),
-            std::time::Duration::from_secs(5),
-            runtime_for(Provider::Gemini),
-        );
         let (req, _spool) = build_request("hi", "gemini-3.1-pro-preview");
-        let result = gemini.execute(req).expect("gemini 3 execute");
+        let (result, body) =
+            execute_openai_compat_mock(gemini_sse, Provider::Gemini, "test-gemini-key", req);
         assert_eq!(result.response, "Hello");
-
-        let body: serde_json::Value =
-            serde_json::from_slice(&recorded.lock().unwrap()).expect("gemini 3 req json");
         assert_eq!(
             body["extra_body"],
             serde_json::json!({
@@ -479,20 +474,10 @@ data: {\"choices\":[{\"delta\":{\"content\":\"<think>plan</think>Answer\"}}]}\n\
 data: {\"choices\":[{\"delta\":{\"content\":\" done\"},\"finish_reason\":\"stop\"}]}\n\n\
 data: [DONE]\n\n\
 ";
-        let (base, recorded, _headers) = start_mock_server(http_response(minimax_sse));
-        let minimax = ApiExecutor::new(
-            ureq::Agent::new_with_defaults(),
-            "test-minimax-key".to_string(),
-            Some(format!("{base}/custom/")),
-            std::time::Duration::from_secs(5),
-            runtime_for(Provider::MiniMax),
-        );
         let (req, _spool) = build_request_with_spool("hi", "MiniMax-M2.7", spool);
-        let result = minimax.execute(req).expect("minimax execute");
+        let (result, body) =
+            execute_openai_compat_mock(minimax_sse, Provider::MiniMax, "test-minimax-key", req);
         assert_eq!(result.response, "Answer done");
-
-        let body: serde_json::Value =
-            serde_json::from_slice(&recorded.lock().unwrap()).expect("minimax req json");
         assert!(body.get("extra_body").is_none());
         assert_eq!(recorded_thinking_events("run-MiniMax-M2.7"), vec!["plan"]);
         drop(state);
