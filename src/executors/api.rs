@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use super::api_chat::ChatStreamHandler;
-use super::api_common::{ApiChatSession, warn_unsupported_file_paths};
+use super::api_common::{ApiChatSession, ApiTextMessage, warn_unsupported_file_paths};
 use super::api_transport::{StreamLabels, StreamRequest, run_stream};
 use super::tag_splitter::TagSplitter;
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
@@ -15,15 +15,9 @@ const LABELS: StreamLabels = StreamLabels {
 };
 
 #[derive(Serialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Serialize)]
 struct ChatRequest {
     model: String,
-    messages: Vec<ChatMessage>,
+    messages: Vec<ApiTextMessage>,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_options: Option<StreamOptions>,
@@ -115,24 +109,8 @@ impl LlmExecutor for ApiExecutor {
         };
         let url = format!("{base}chat/completions");
 
-        let mut messages = vec![ChatMessage {
-            role: "system".to_string(),
-            content: system_prompt.clone(),
-        }];
-        for turn in session.history() {
-            messages.push(ChatMessage {
-                role: "user".to_string(),
-                content: turn.user_prompt.clone(),
-            });
-            messages.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: turn.assistant_response.clone(),
-            });
-        }
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: prompt.clone(),
-        });
+        let mut messages = vec![ApiTextMessage::system(system_prompt.clone())];
+        messages.extend(session.transcript_messages(&prompt));
 
         let extra_body = extra_body(self.runtime, &model);
 

@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use super::anthropic_events::AnthropicStreamHandler;
-use super::api_common::{ApiChatSession, warn_unsupported_file_paths};
+use super::api_common::{ApiChatSession, ApiTextMessage, warn_unsupported_file_paths};
 use super::api_transport::{StreamLabels, StreamRequest, run_stream};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
 
@@ -15,17 +15,11 @@ const LABELS: StreamLabels = StreamLabels {
 };
 
 #[derive(Serialize)]
-struct Message {
-    role: String,
-    content: String,
-}
-
-#[derive(Serialize)]
 struct MessagesRequest {
     model: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     system: String,
-    messages: Vec<Message>,
+    messages: Vec<ApiTextMessage>,
     max_tokens: u32,
     stream: bool,
 }
@@ -85,21 +79,7 @@ impl LlmExecutor for AnthropicApiExecutor {
         let base = self.base_url.trim_end_matches('/');
         let url = format!("{base}/v1/messages");
 
-        let mut messages = Vec::new();
-        for turn in session.history() {
-            messages.push(Message {
-                role: "user".to_string(),
-                content: turn.user_prompt.clone(),
-            });
-            messages.push(Message {
-                role: "assistant".to_string(),
-                content: turn.assistant_response.clone(),
-            });
-        }
-        messages.push(Message {
-            role: "user".to_string(),
-            content: prompt.clone(),
-        });
+        let messages = session.transcript_messages(&prompt);
 
         let request = MessagesRequest {
             model: model.clone(),
@@ -144,10 +124,7 @@ mod tests {
         let req = MessagesRequest {
             model: "claude-opus-4-7".into(),
             system: String::new(),
-            messages: vec![Message {
-                role: "user".into(),
-                content: "hi".into(),
-            }],
+            messages: vec![ApiTextMessage::user("hi".into())],
             max_tokens: 1024,
             stream: true,
         };

@@ -2,10 +2,40 @@ use std::sync::Mutex;
 
 use consult_llm_core::monitoring::RunSpool;
 use consult_llm_core::stream_events::ParsedStreamEvent;
+use serde::Serialize;
 
 use super::thread_store;
 use super::types::{ExecuteResult, Usage};
 use crate::logger::log_to_file;
+
+#[derive(Serialize)]
+pub(crate) struct ApiTextMessage {
+    pub role: String,
+    pub content: String,
+}
+
+impl ApiTextMessage {
+    pub(crate) fn user(content: String) -> Self {
+        Self {
+            role: "user".to_string(),
+            content,
+        }
+    }
+
+    pub(crate) fn assistant(content: String) -> Self {
+        Self {
+            role: "assistant".to_string(),
+            content,
+        }
+    }
+
+    pub(crate) fn system(content: String) -> Self {
+        Self {
+            role: "system".to_string(),
+            content,
+        }
+    }
+}
 
 pub struct ApiChatSession {
     thread_id: String,
@@ -70,6 +100,16 @@ impl ApiChatSession {
 
     pub fn history(&self) -> &[thread_store::StoredTurn] {
         &self.history
+    }
+
+    pub(crate) fn transcript_messages(&self, prompt: &str) -> Vec<ApiTextMessage> {
+        let mut messages = Vec::new();
+        for turn in self.history() {
+            messages.push(ApiTextMessage::user(turn.user_prompt.clone()));
+            messages.push(ApiTextMessage::assistant(turn.assistant_response.clone()));
+        }
+        messages.push(ApiTextMessage::user(prompt.to_string()));
+        messages
     }
 
     /// Persist a completed turn to thread storage and return the result.
