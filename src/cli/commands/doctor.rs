@@ -712,13 +712,9 @@ mod tests {
             cli_profile(std::env::current_exe().unwrap().display().to_string()),
         );
 
-        let (ok, detail) = profile_backend_dependency(
-            provider.spec(),
-            "profile",
-            Some("claude"),
-            &profiles,
-        )
-        .unwrap();
+        let (ok, detail) =
+            profile_backend_dependency(provider.spec(), "profile", Some("claude"), &profiles)
+                .unwrap();
 
         assert!(ok);
         assert!(detail.contains("profile 'claude' command"));
