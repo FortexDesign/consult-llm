@@ -97,7 +97,7 @@ fn handle_filter_key(key: KeyEvent) -> Option<Action> {
     }
 }
 
-fn handle_detail_key(key: KeyEvent) -> Option<Action> {
+fn handle_common_detail_key(key: &KeyEvent) -> Option<Action> {
     match key.code {
         KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('q') | KeyCode::Esc => Some(Action::ExitDetail),
@@ -112,11 +112,17 @@ fn handle_detail_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('g') => Some(Action::ScrollToTop),
         KeyCode::Char('r') => Some(Action::ScrollToResponse),
         KeyCode::Char('y') => Some(Action::YankResponse),
+        _ => None,
+    }
+}
+
+fn handle_detail_key(key: KeyEvent) -> Option<Action> {
+    handle_common_detail_key(&key).or_else(|| match key.code {
         KeyCode::Char('s') => Some(Action::ToggleSystemPrompt),
         KeyCode::Tab => Some(Action::NextSibling),
         KeyCode::BackTab => Some(Action::PrevSibling),
         _ => None,
-    }
+    })
 }
 
 fn open_history_row(state: &AppState, history_idx: usize, dir: &Path) -> Option<Action> {
@@ -275,24 +281,11 @@ fn row_at(rect: Rect, table_state: &TableState, x: u16, y: u16) -> Option<usize>
 }
 
 fn handle_thread_detail_key(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('?') => Some(Action::ToggleHelp),
-        KeyCode::Char('q') | KeyCode::Esc => Some(Action::ExitDetail),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::ScrollDown),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::ScrollUp),
-        KeyCode::Char('d') => Some(Action::HalfPageDown),
-        KeyCode::Char('u') => Some(Action::HalfPageUp),
-        KeyCode::PageDown => Some(Action::PageDown),
-        KeyCode::PageUp => Some(Action::PageUp),
-        KeyCode::Char('G') => Some(Action::ScrollToBottom),
-        KeyCode::Char('g') => Some(Action::ScrollToTop),
-        KeyCode::Char('r') => Some(Action::ScrollToResponse),
-        KeyCode::Char('y') => Some(Action::YankResponse),
+    handle_common_detail_key(&key).or_else(|| match key.code {
         KeyCode::Char('[') => Some(Action::PrevTurn),
         KeyCode::Char(']') => Some(Action::NextTurn),
         _ => None,
-    }
+    })
 }
 
 #[cfg(test)]
