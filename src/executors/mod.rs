@@ -214,3 +214,67 @@ pub fn run_cli_executor_with_env(
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    use consult_llm_core::monitoring::RunSpool;
+
+    use super::*;
+    use types::ExecutionRequest;
+
+    fn request(file_paths: Option<Vec<PathBuf>>, thread_id: Option<&str>) -> ExecutionRequest {
+        ExecutionRequest {
+            prompt: "explain this".to_string(),
+            model: "test-model".to_string(),
+            system_prompt: "use concise answers".to_string(),
+            file_paths,
+            thread_id: thread_id.map(str::to_string),
+            spool: Arc::new(Mutex::new(RunSpool::disabled())),
+        }
+    }
+
+    fn custom_file_context(text: &str, file_paths: Option<&[PathBuf]>) -> String {
+        let files = file_paths
+            .unwrap_or_default()
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("{text}\nfiles={files}")
+    }
+
+    #[test]
+    fn prepare_cli_request_prepends_system_prompt_for_new_threads() {
+        let prepared = prepare_cli_request(request(None, None), custom_file_context);
+
+        assert_eq!(
+            prepared.stdin_prompt,
+            "use concise answers\n\nexplain this\nfiles="
+        );
+        assert_eq!(prepared.thread_id, None);
+    }
+
+    #[test]
+    fn prepare_cli_request_omits_system_prompt_for_resumed_threads() {
+        let prepared = prepare_cli_request(request(None, Some("thread-1")), custom_file_context);
+
+        assert_eq!(prepared.stdin_prompt, "explain this\nfiles=");
+        assert_eq!(prepared.thread_id, Some("thread-1".to_string()));
+    }
+
+    #[test]
+    fn prepare_cli_request_passes_file_paths_to_formatter() {
+        let file_paths = vec![PathBuf::from("src/lib.rs"), PathBuf::from("README.md")];
+        let prepared =
+            prepare_cli_request(request(Some(file_paths.clone()), None), custom_file_context);
+
+        assert_eq!(
+            prepared.stdin_prompt,
+            "use concise answers\n\nexplain this\nfiles=src/lib.rs,README.md"
+        );
+        assert_eq!(prepared.file_paths, Some(file_paths));
+    }
+}

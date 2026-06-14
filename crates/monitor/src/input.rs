@@ -117,12 +117,16 @@ fn handle_common_detail_key(key: &KeyEvent) -> Option<Action> {
 }
 
 fn handle_detail_key(key: KeyEvent) -> Option<Action> {
-    handle_common_detail_key(&key).or(match key.code {
+    handle_common_detail_key(&key).or_else(|| handle_run_detail_key(&key))
+}
+
+fn handle_run_detail_key(key: &KeyEvent) -> Option<Action> {
+    match key.code {
         KeyCode::Char('s') => Some(Action::ToggleSystemPrompt),
         KeyCode::Tab => Some(Action::NextSibling),
         KeyCode::BackTab => Some(Action::PrevSibling),
         _ => None,
-    })
+    }
 }
 
 fn open_history_row(state: &AppState, history_idx: usize, dir: &Path) -> Option<Action> {
@@ -281,11 +285,15 @@ fn row_at(rect: Rect, table_state: &TableState, x: u16, y: u16) -> Option<usize>
 }
 
 fn handle_thread_detail_key(key: KeyEvent) -> Option<Action> {
-    handle_common_detail_key(&key).or(match key.code {
+    handle_common_detail_key(&key).or_else(|| handle_thread_turn_key(&key))
+}
+
+fn handle_thread_turn_key(key: &KeyEvent) -> Option<Action> {
+    match key.code {
         KeyCode::Char('[') => Some(Action::PrevTurn),
         KeyCode::Char(']') => Some(Action::NextTurn),
         _ => None,
-    })
+    }
 }
 
 #[cfg(test)]

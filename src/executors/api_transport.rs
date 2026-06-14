@@ -148,6 +148,7 @@ mod tests {
 
     use super::super::anthropic_api::AnthropicApiExecutor;
     use super::super::api::ApiExecutor;
+    use super::super::thread_store::{self, StoredThread, StoredTurn};
     use super::super::types::{ExecuteResult, ExecutionRequest, LlmExecutor};
     use super::*;
     use crate::models::{ApiProtocol, Provider};
@@ -374,6 +375,25 @@ mod tests {
         (req, spool)
     }
 
+    fn build_resume_request(prompt: &str, model: &str, thread_id: &str) -> ExecutionRequest {
+        let (mut req, _spool) = build_request(prompt, model);
+        req.thread_id = Some(thread_id.to_string());
+        req
+    }
+
+    fn save_thread(id: &str) {
+        thread_store::save(&StoredThread {
+            id: id.to_string(),
+            turns: vec![StoredTurn {
+                user_prompt: "old prompt".to_string(),
+                assistant_response: "old answer".to_string(),
+                model: "old-model".to_string(),
+                usage: None,
+            }],
+        })
+        .expect("save thread");
+    }
+
     fn runtime_for(provider: Provider) -> crate::models::OpenAiCompatRuntime {
         let ApiProtocol::OpenAiCompat(runtime) = provider.api_protocol() else {
             panic!("{provider:?} is not OpenAI-compatible");
@@ -481,6 +501,78 @@ data: [DONE]\n\n\
         assert!(body.get("extra_body").is_none());
         assert_eq!(recorded_thinking_events("run-MiniMax-M2.7"), vec!["plan"]);
         drop(state);
+    }
+
+    #[test]
+    fn openai_compat_resume_request_replays_stored_turns_after_system_prompt() {
+        let _xdg_guard = crate::test_util::XDG_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let _state = isolate_state_dir();
+        let thread_id = "api_resume_openai";
+        save_thread(thread_id);
+
+        let openai_sse = b"\
+data: {\"choices\":[{\"delta\":{\"content\":\"new answer\"},\"finish_reason\":\"stop\"}]}\n\n\
+data: [DONE]\n\n\
+";
+        let req = build_resume_request("new prompt", "gpt-test", thread_id);
+        let (result, body) =
+            execute_openai_compat_mock(openai_sse, Provider::OpenAI, "test-openai-key", req);
+
+        assert_eq!(result.response, "new answer");
+        assert_eq!(result.thread_id, Some(thread_id.to_string()));
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([
+                {"role": "system", "content": "you are helpful"},
+                {"role": "user", "content": "old prompt"},
+                {"role": "assistant", "content": "old answer"},
+                {"role": "user", "content": "new prompt"},
+            ])
+        );
+    }
+
+    #[test]
+    fn anthropic_resume_request_replays_stored_turns_without_system_message_role() {
+        let _xdg_guard = crate::test_util::XDG_STATE_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let _state = isolate_state_dir();
+        let thread_id = "api_resume_anthropic";
+        save_thread(thread_id);
+
+        let anthropic_sse = b"\
+data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":9,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\n\
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n\
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"new answer\"}}\n\n\
+data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n\
+data: {\"type\":\"message_stop\"}\n\n\
+";
+        let (base, recorded, _headers) = start_mock_server(http_response(anthropic_sse));
+        let anthropic = AnthropicApiExecutor::new(
+            ureq::Agent::new_with_defaults(),
+            "test-anthropic-key".to_string(),
+            Some(base),
+            std::time::Duration::from_secs(5),
+        );
+        let req = build_resume_request("new prompt", "claude-test", thread_id);
+        let result = anthropic.execute(req).expect("anthropic execute");
+
+        assert_eq!(result.response, "new answer");
+        assert_eq!(result.thread_id, Some(thread_id.to_string()));
+        let body: serde_json::Value =
+            serde_json::from_slice(&recorded.lock().unwrap()).expect("anth req json");
+        assert_eq!(body["system"], "you are helpful");
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([
+                {"role": "user", "content": "old prompt"},
+                {"role": "assistant", "content": "old answer"},
+                {"role": "user", "content": "new prompt"},
+            ])
+        );
     }
 
     #[test]
