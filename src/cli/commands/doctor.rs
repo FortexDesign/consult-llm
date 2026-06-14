@@ -705,8 +705,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn profile_backend_dependency_reports_selected_profile_command_for_anthropic_profile_backend() {
+    fn assert_profile_backend_reports_command(provider: Provider) {
         let mut profiles = BTreeMap::new();
         profiles.insert(
             "claude".to_string(),
@@ -714,7 +713,7 @@ mod tests {
         );
 
         let (ok, detail) = profile_backend_dependency(
-            Provider::Anthropic.spec(),
+            provider.spec(),
             "profile",
             Some("claude"),
             &profiles,
@@ -726,23 +725,13 @@ mod tests {
     }
 
     #[test]
+    fn profile_backend_dependency_reports_selected_profile_command_for_anthropic_profile_backend() {
+        assert_profile_backend_reports_command(Provider::Anthropic);
+    }
+
+    #[test]
     fn profile_backend_dependency_reports_selected_profile_command_for_gemini_profile_backend() {
-        let mut profiles = BTreeMap::new();
-        profiles.insert(
-            "claude".to_string(),
-            cli_profile(std::env::current_exe().unwrap().display().to_string()),
-        );
-
-        let (ok, detail) = profile_backend_dependency(
-            Provider::Gemini.spec(),
-            "profile",
-            Some("claude"),
-            &profiles,
-        )
-        .unwrap();
-
-        assert!(ok);
-        assert!(detail.contains("profile 'claude' command"));
+        assert_profile_backend_reports_command(Provider::Gemini);
     }
 
     #[test]
