@@ -13,7 +13,9 @@ use crate::state::{
 };
 
 use super::blocks::{live_spinner_label, normalize_events, render_blocks, split_at_width};
-use super::{compute_detail_layout, push_live_follow_spans, render_detail_body, visible_detail_lines};
+use super::{
+    compute_detail_layout, push_live_follow_spans, render_detail_body, visible_detail_lines,
+};
 
 pub(in crate::ui) fn render_detail_view(
     frame: &mut ratatui::Frame,

@@ -117,7 +117,7 @@ fn handle_common_detail_key(key: &KeyEvent) -> Option<Action> {
 }
 
 fn handle_detail_key(key: KeyEvent) -> Option<Action> {
-    handle_common_detail_key(&key).or_else(|| match key.code {
+    handle_common_detail_key(&key).or(match key.code {
         KeyCode::Char('s') => Some(Action::ToggleSystemPrompt),
         KeyCode::Tab => Some(Action::NextSibling),
         KeyCode::BackTab => Some(Action::PrevSibling),
@@ -281,7 +281,7 @@ fn row_at(rect: Rect, table_state: &TableState, x: u16, y: u16) -> Option<usize>
 }
 
 fn handle_thread_detail_key(key: KeyEvent) -> Option<Action> {
-    handle_common_detail_key(&key).or_else(|| match key.code {
+    handle_common_detail_key(&key).or(match key.code {
         KeyCode::Char('[') => Some(Action::PrevTurn),
         KeyCode::Char(']') => Some(Action::NextTurn),
         _ => None,
