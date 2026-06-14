@@ -27,6 +27,36 @@ impl SseParser {
         Self::default()
     }
 
+    fn parse_event_line(&mut self, line: &str) {
+        if line.is_empty() || line.starts_with(':') {
+            return;
+        }
+
+        let (field, value) = match line.split_once(':') {
+            Some((f, v)) => (f, v.strip_prefix(' ').unwrap_or(v)),
+            None => (line, ""),
+        };
+
+        self.have_field = true;
+        match field {
+            "data" => {
+                if !self.cur_data.is_empty() {
+                    self.cur_data.push('\n');
+                }
+                self.cur_data.push_str(value);
+            }
+            "event" => self.cur_event = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    fn parse_event_lines(&mut self, text: &str) {
+        for raw in text.split('\n') {
+            let line = raw.strip_suffix('\r').unwrap_or(raw);
+            self.parse_event_line(line);
+        }
+    }
+
     /// Feed bytes from the wire. Returns any complete events that became
     /// available. Holds back partial frames across calls so split delimiters
     /// (`\r\n\r\n` cut between two reads) are still detected. Errors if the
@@ -50,30 +80,7 @@ impl SseParser {
             // Use lossy decoding so a single invalid byte doesn't drop the whole
             // event; degrades to U+FFFD for the offending bytes.
             let text = String::from_utf8_lossy(&frame);
-            for raw in text.split('\n') {
-                let line = raw.strip_suffix('\r').unwrap_or(raw);
-                if line.is_empty() {
-                    continue;
-                }
-                if line.starts_with(':') {
-                    continue;
-                }
-                let (field, value) = match line.split_once(':') {
-                    Some((f, v)) => (f, v.strip_prefix(' ').unwrap_or(v)),
-                    None => (line, ""),
-                };
-                self.have_field = true;
-                match field {
-                    "data" => {
-                        if !self.cur_data.is_empty() {
-                            self.cur_data.push('\n');
-                        }
-                        self.cur_data.push_str(value);
-                    }
-                    "event" => self.cur_event = Some(value.to_string()),
-                    _ => {}
-                }
-            }
+            self.parse_event_lines(&text);
             // Per SSE spec, events with an empty data buffer are NOT
             // dispatched — heartbeat-style `event: ping\n\n` frames are
             // structural noise we want to ignore.
@@ -96,29 +103,9 @@ impl SseParser {
     pub fn flush(mut self) -> Option<SseEvent> {
         // Drain any unparsed residual lines.
         if !self.buf.is_empty() {
-            let text = String::from_utf8_lossy(&self.buf);
-            for raw in text.split('\n') {
-                let line = raw.strip_suffix('\r').unwrap_or(raw);
-                if line.is_empty() || line.starts_with(':') {
-                    continue;
-                }
-                let (field, value) = match line.split_once(':') {
-                    Some((f, v)) => (f, v.strip_prefix(' ').unwrap_or(v)),
-                    None => (line, ""),
-                };
-                self.have_field = true;
-                match field {
-                    "data" => {
-                        if !self.cur_data.is_empty() {
-                            self.cur_data.push('\n');
-                        }
-                        self.cur_data.push_str(value);
-                    }
-                    "event" => self.cur_event = Some(value.to_string()),
-                    _ => {}
-                }
-            }
-            self.buf.clear();
+            let buf = std::mem::take(&mut self.buf);
+            let text = String::from_utf8_lossy(&buf);
+            self.parse_event_lines(&text);
         }
         if !self.have_field || self.cur_data.is_empty() {
             return None;
