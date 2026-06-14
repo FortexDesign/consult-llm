@@ -255,6 +255,25 @@ pub enum ConfigError {
     },
 }
 
+fn fmt_invalid_default_model(
+    f: &mut fmt::Formatter<'_>,
+    field: &str,
+    model: &str,
+    allowed: &[String],
+) -> fmt::Result {
+    let selectors: Vec<&str> = selector_priorities().map(|(s, _)| s).collect();
+    let opts = allowed
+        .iter()
+        .map(|m| format!("'{m}'"))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    write!(
+        f,
+        "Invalid environment variables:\n  {field}: Invalid value '{model}'. Expected a selector ({}) or exact model ({opts})",
+        selectors.join(", ")
+    )
+}
+
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -278,30 +297,10 @@ impl fmt::Display for ConfigError {
                 )
             }
             ConfigError::InvalidDefaultModel { model, allowed } => {
-                let selectors: Vec<&str> = selector_priorities().map(|(s, _)| s).collect();
-                let opts = allowed
-                    .iter()
-                    .map(|m| format!("'{m}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                write!(
-                    f,
-                    "Invalid environment variables:\n  defaultModel: Invalid value '{model}'. Expected a selector ({}) or exact model ({opts})",
-                    selectors.join(", ")
-                )
+                fmt_invalid_default_model(f, "defaultModel", model, allowed)
             }
             ConfigError::InvalidDefaultModels { model, allowed } => {
-                let selectors: Vec<&str> = selector_priorities().map(|(s, _)| s).collect();
-                let opts = allowed
-                    .iter()
-                    .map(|m| format!("'{m}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                write!(
-                    f,
-                    "Invalid environment variables:\n  defaultModels: Invalid value '{model}'. Expected a selector ({}) or exact model ({opts})",
-                    selectors.join(", ")
-                )
+                fmt_invalid_default_model(f, "defaultModels", model, allowed)
             }
             ConfigError::TooManyDefaultModels { count } => write!(
                 f,
