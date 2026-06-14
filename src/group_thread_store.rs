@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
 
 use fs2::FileExt;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -135,23 +134,7 @@ where
 }
 
 pub fn cleanup_expired(ttl_days: u64) -> anyhow::Result<()> {
-    let dir = groups_dir();
-    if !dir.exists() {
-        return Ok(());
-    }
-    let cutoff = SystemTime::now() - Duration::from_secs(ttl_days * 86400);
-    for entry in fs::read_dir(&dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "json")
-            && let Ok(meta) = entry.metadata()
-            && let Ok(modified) = meta.modified()
-            && modified < cutoff
-        {
-            let _ = fs::remove_file(&path);
-        }
-    }
-    Ok(())
+    crate::file::cleanup_expired_json_files(&groups_dir(), ttl_days)
 }
 
 #[cfg(test)]
