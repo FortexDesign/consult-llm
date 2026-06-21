@@ -427,15 +427,15 @@ A **backend** is how `consult-llm` reaches that model family:
 - **`api`**: direct HTTP calls using an API key
 - **CLI backends**: shell out to a local CLI tool already installed and logged in
 
-| Model family | `api` backend | CLI backends available                         | API key env var     |
-| ------------ | ------------- | ---------------------------------------------- | ------------------- |
-| Gemini       | yes           | `gemini-cli`, `cursor-cli`, `opencode`, `profile` | `GEMINI_API_KEY`    |
-| OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`, `profile`  | `OPENAI_API_KEY`    |
-| DeepSeek     | yes           | `opencode`, `profile`                          | `DEEPSEEK_API_KEY`  |
-| MiniMax      | yes           | `opencode`, `profile`                          | `MINIMAX_API_KEY`   |
-| Anthropic    | yes           | `profile`, `claude-cli`, `cursor-cli`          | `ANTHROPIC_API_KEY` |
-| Grok         | yes           | `cursor-cli`, `profile`                        | `XAI_API_KEY`       |
-| OpenRouter   | yes           | `opencode`, `profile`                          | `OPENROUTER_API_KEY` |
+| Model family | `api` backend | CLI backends available                            | API key env var      |
+| ------------ | ------------- | ------------------------------------------------- | -------------------- |
+| Gemini       | yes           | `gemini-cli`, `cursor-cli`, `opencode`, `profile` | `GEMINI_API_KEY`     |
+| OpenAI       | yes           | `codex-cli`, `cursor-cli`, `opencode`, `profile`  | `OPENAI_API_KEY`     |
+| DeepSeek     | yes           | `opencode`, `profile`                             | `DEEPSEEK_API_KEY`   |
+| MiniMax      | yes           | `opencode`, `profile`                             | `MINIMAX_API_KEY`    |
+| Anthropic    | yes           | `profile`, `claude-cli`, `cursor-cli`             | `ANTHROPIC_API_KEY`  |
+| Grok         | yes           | `cursor-cli`, `profile`                           | `XAI_API_KEY`        |
+| OpenRouter   | yes           | `opencode`, `profile`                             | `OPENROUTER_API_KEY` |
 
 ### API backend
 
@@ -821,46 +821,46 @@ system_prompt_path: /path/to/project/.consult-llm/SYSTEM_PROMPT.md
 
 Environment variables override config file values.
 
-| Variable                                 | Description                                                                            | Allowed values                                    | Default                                  |
-| ---------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------- |
-| `OPENAI_API_KEY`                         | OpenAI API key                                                                         |                                                   |                                          |
-| `GEMINI_API_KEY`                         | Gemini API key                                                                         |                                                   |                                          |
-| `ANTHROPIC_API_KEY`                      | Anthropic API key                                                                      |                                                   |                                          |
-| `DEEPSEEK_API_KEY`                       | DeepSeek API key                                                                       |                                                   |                                          |
-| `MINIMAX_API_KEY`                        | MiniMax API key                                                                        |                                                   |                                          |
-| `OPENROUTER_API_KEY`                    | OpenRouter API key                                                                     |                                                   |                                          |
-| `XAI_API_KEY`                            | xAI API key for Grok models                                                            |                                                   |                                          |
-| `CONSULT_LLM_DEFAULT_MODEL`              | Model or selector to use for single-response calls when `-m` is omitted                | selector or exact model ID                        | first available                          |
-| `CONSULT_LLM_DEFAULT_MODELS`             | Comma-separated ordered multi-model defaults when `-m` is omitted; duplicates preserved | selectors or exact model IDs                      | empty (falls through to default_model then fallback) |
-| `CONSULT_LLM_GEMINI_BACKEND`             | Backend for Gemini models                                                              | `api` `gemini-cli` `cursor-cli` `opencode` `profile` | `api`                                    |
-| `CONSULT_LLM_OPENAI_BACKEND`             | Backend for OpenAI models                                                              | `api` `codex-cli` `cursor-cli` `opencode` `profile` | `api`                                    |
-| `CONSULT_LLM_DEEPSEEK_BACKEND`           | Backend for DeepSeek models                                                            | `api` `opencode` `profile`                        | `api`                                    |
-| `CONSULT_LLM_MINIMAX_BACKEND`            | Backend for MiniMax models                                                             | `api` `opencode` `profile`                        | `api`                                    |
-| `CONSULT_LLM_ANTHROPIC_BACKEND`          | Backend for Anthropic models                                                           | `api` `profile` `claude-cli` `cursor-cli`         | `api`                                    |
-| `CONSULT_LLM_GROK_BACKEND`               | Backend for Grok models                                                                | `api` `cursor-cli` `profile`                      | `api`                                    |
-| `CONSULT_LLM_OPENROUTER_BACKEND`         | Backend for OpenRouter models                                                          | `api` `opencode` `profile`                        | `api`                                    |
-| `CONSULT_LLM_ALLOWED_MODELS`             | Comma-separated allowlist; restricts which models are enabled                          | model IDs                                         | all                                      |
-| `CONSULT_LLM_EXTRA_MODELS`               | Comma-separated extra model IDs to add to the catalog                                  | model IDs                                         |                                          |
-| `CONSULT_LLM_CODEX_REASONING_EFFORT`     | Reasoning effort for Codex CLI backend                                                 | `none` `minimal` `low` `medium` `high` `xhigh`    | `high`                                   |
-| `CONSULT_LLM_CODEX_EXTRA_ARGS`           | Extra CLI args appended to `codex exec` (shell-quoted)                                 | e.g. `--dangerously-bypass-approvals-and-sandbox` |                                          |
-| `CONSULT_LLM_GEMINI_EXTRA_ARGS`          | Extra CLI args appended to `gemini` (shell-quoted)                                     | shell-quoted args                                 |                                          |
-| `CONSULT_LLM_CLAUDE_REASONING_EFFORT`    | Reasoning effort for native Claude CLI backend                                         | `low` `medium` `high` `xhigh` `max`               | unset                                    |
-| `CONSULT_LLM_CLAUDE_EXTRA_ARGS`          | Extra CLI args appended to `claude` (shell-quoted)                                     | shell-quoted args                                 |                                          |
-| `CONSULT_LLM_OPENCODE_PROVIDER`          | Default OpenCode provider prefix for all models                                        | provider name                                     | per-model default                        |
-| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`      | CLI profile name when `anthropic.backend` is `profile`                                 | profile name                                       |                                          |
-| `CONSULT_LLM_GEMINI_CLI_PROFILE`         | CLI profile name when `gemini.backend` is `profile`                                    | profile name                                       |                                          |
-| `CONSULT_LLM_OPENAI_CLI_PROFILE`         | CLI profile name when `openai.backend` is `profile`                                    | profile name                                       |                                          |
-| `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`       | CLI profile name when `deepseek.backend` is `profile`                                  | profile name                                       |                                          |
-| `CONSULT_LLM_MINIMAX_CLI_PROFILE`        | CLI profile name when `minimax.backend` is `profile`                                   | profile name                                       |                                          |
-| `CONSULT_LLM_GROK_CLI_PROFILE`           | CLI profile name when `grok.backend` is `profile`                                      | profile name                                       |                                          |
-| `CONSULT_LLM_OPENROUTER_CLI_PROFILE`     | CLI profile name when `openrouter.backend` is `profile`                                | profile name                                       |                                          |
-| `CONSULT_LLM_OPENCODE_OPENAI_PROVIDER`   | OpenCode provider for OpenAI models                                                    | provider name                                     | `openai`                                 |
-| `CONSULT_LLM_OPENCODE_GEMINI_PROVIDER`   | OpenCode provider for Gemini models                                                    | provider name                                     | `google`                                 |
-| `CONSULT_LLM_OPENCODE_DEEPSEEK_PROVIDER` | OpenCode provider for DeepSeek models                                                  | provider name                                     | `deepseek`                               |
-| `CONSULT_LLM_OPENCODE_MINIMAX_PROVIDER`  | OpenCode provider for MiniMax models                                                   | provider name                                     | `minimax`                                |
-| `CONSULT_LLM_OPENCODE_OPENROUTER_PROVIDER` | OpenCode provider for OpenRouter models                                              | provider name                                     | `openrouter`                             |
-| `CONSULT_LLM_SYSTEM_PROMPT_PATH`         | Path to a custom system prompt file                                                    | file path                                         | `~/.config/consult-llm/SYSTEM_PROMPT.md` |
-| `CONSULT_LLM_NO_UPDATE_CHECK`            | Disable background update checks                                                       | `1` `true` `yes`                                  |                                          |
+| Variable                                   | Description                                                                             | Allowed values                                       | Default                                              |
+| ------------------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------- |
+| `OPENAI_API_KEY`                           | OpenAI API key                                                                          |                                                      |                                                      |
+| `GEMINI_API_KEY`                           | Gemini API key                                                                          |                                                      |                                                      |
+| `ANTHROPIC_API_KEY`                        | Anthropic API key                                                                       |                                                      |                                                      |
+| `DEEPSEEK_API_KEY`                         | DeepSeek API key                                                                        |                                                      |                                                      |
+| `MINIMAX_API_KEY`                          | MiniMax API key                                                                         |                                                      |                                                      |
+| `OPENROUTER_API_KEY`                       | OpenRouter API key                                                                      |                                                      |                                                      |
+| `XAI_API_KEY`                              | xAI API key for Grok models                                                             |                                                      |                                                      |
+| `CONSULT_LLM_DEFAULT_MODEL`                | Model or selector to use for single-response calls when `-m` is omitted                 | selector or exact model ID                           | first available                                      |
+| `CONSULT_LLM_DEFAULT_MODELS`               | Comma-separated ordered multi-model defaults when `-m` is omitted; duplicates preserved | selectors or exact model IDs                         | empty (falls through to default_model then fallback) |
+| `CONSULT_LLM_GEMINI_BACKEND`               | Backend for Gemini models                                                               | `api` `gemini-cli` `cursor-cli` `opencode` `profile` | `api`                                                |
+| `CONSULT_LLM_OPENAI_BACKEND`               | Backend for OpenAI models                                                               | `api` `codex-cli` `cursor-cli` `opencode` `profile`  | `api`                                                |
+| `CONSULT_LLM_DEEPSEEK_BACKEND`             | Backend for DeepSeek models                                                             | `api` `opencode` `profile`                           | `api`                                                |
+| `CONSULT_LLM_MINIMAX_BACKEND`              | Backend for MiniMax models                                                              | `api` `opencode` `profile`                           | `api`                                                |
+| `CONSULT_LLM_ANTHROPIC_BACKEND`            | Backend for Anthropic models                                                            | `api` `profile` `claude-cli` `cursor-cli`            | `api`                                                |
+| `CONSULT_LLM_GROK_BACKEND`                 | Backend for Grok models                                                                 | `api` `cursor-cli` `profile`                         | `api`                                                |
+| `CONSULT_LLM_OPENROUTER_BACKEND`           | Backend for OpenRouter models                                                           | `api` `opencode` `profile`                           | `api`                                                |
+| `CONSULT_LLM_ALLOWED_MODELS`               | Comma-separated allowlist; restricts which models are enabled                           | model IDs                                            | all                                                  |
+| `CONSULT_LLM_EXTRA_MODELS`                 | Comma-separated extra model IDs to add to the catalog                                   | model IDs                                            |                                                      |
+| `CONSULT_LLM_CODEX_REASONING_EFFORT`       | Reasoning effort for Codex CLI backend                                                  | `none` `minimal` `low` `medium` `high` `xhigh`       | `high`                                               |
+| `CONSULT_LLM_CODEX_EXTRA_ARGS`             | Extra CLI args appended to `codex exec` (shell-quoted)                                  | e.g. `--dangerously-bypass-approvals-and-sandbox`    |                                                      |
+| `CONSULT_LLM_GEMINI_EXTRA_ARGS`            | Extra CLI args appended to `gemini` (shell-quoted)                                      | shell-quoted args                                    |                                                      |
+| `CONSULT_LLM_CLAUDE_REASONING_EFFORT`      | Reasoning effort for native Claude CLI backend                                          | `low` `medium` `high` `xhigh` `max`                  | unset                                                |
+| `CONSULT_LLM_CLAUDE_EXTRA_ARGS`            | Extra CLI args appended to `claude` (shell-quoted)                                      | shell-quoted args                                    |                                                      |
+| `CONSULT_LLM_OPENCODE_PROVIDER`            | Default OpenCode provider prefix for all models                                         | provider name                                        | per-model default                                    |
+| `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`        | CLI profile name when `anthropic.backend` is `profile`                                  | profile name                                         |                                                      |
+| `CONSULT_LLM_GEMINI_CLI_PROFILE`           | CLI profile name when `gemini.backend` is `profile`                                     | profile name                                         |                                                      |
+| `CONSULT_LLM_OPENAI_CLI_PROFILE`           | CLI profile name when `openai.backend` is `profile`                                     | profile name                                         |                                                      |
+| `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`         | CLI profile name when `deepseek.backend` is `profile`                                   | profile name                                         |                                                      |
+| `CONSULT_LLM_MINIMAX_CLI_PROFILE`          | CLI profile name when `minimax.backend` is `profile`                                    | profile name                                         |                                                      |
+| `CONSULT_LLM_GROK_CLI_PROFILE`             | CLI profile name when `grok.backend` is `profile`                                       | profile name                                         |                                                      |
+| `CONSULT_LLM_OPENROUTER_CLI_PROFILE`       | CLI profile name when `openrouter.backend` is `profile`                                 | profile name                                         |                                                      |
+| `CONSULT_LLM_OPENCODE_OPENAI_PROVIDER`     | OpenCode provider for OpenAI models                                                     | provider name                                        | `openai`                                             |
+| `CONSULT_LLM_OPENCODE_GEMINI_PROVIDER`     | OpenCode provider for Gemini models                                                     | provider name                                        | `google`                                             |
+| `CONSULT_LLM_OPENCODE_DEEPSEEK_PROVIDER`   | OpenCode provider for DeepSeek models                                                   | provider name                                        | `deepseek`                                           |
+| `CONSULT_LLM_OPENCODE_MINIMAX_PROVIDER`    | OpenCode provider for MiniMax models                                                    | provider name                                        | `minimax`                                            |
+| `CONSULT_LLM_OPENCODE_OPENROUTER_PROVIDER` | OpenCode provider for OpenRouter models                                                 | provider name                                        | `openrouter`                                         |
+| `CONSULT_LLM_SYSTEM_PROMPT_PATH`           | Path to a custom system prompt file                                                     | file path                                            | `~/.config/consult-llm/SYSTEM_PROMPT.md`             |
+| `CONSULT_LLM_NO_UPDATE_CHECK`              | Disable background update checks                                                        | `1` `true` `yes`                                     |                                                      |
 
 </details>
 
