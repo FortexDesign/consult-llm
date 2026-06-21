@@ -349,6 +349,7 @@ mod tests {
                 error: None,
                 tokens_in: None,
                 tokens_out: None,
+                cost: None,
                 parsed_ts: None,
                 thread_id: None,
                 reasoning_effort: None,

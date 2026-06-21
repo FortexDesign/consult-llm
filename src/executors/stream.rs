@@ -32,6 +32,7 @@ pub fn usage_event_from_keys(
             .get(completion_key)
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
+        cost: None,
     }
 }
 
@@ -137,10 +138,12 @@ impl StreamReducer {
                 ParsedStreamEvent::Usage {
                     prompt_tokens,
                     completion_tokens,
+                    cost,
                 } => {
                     self.usage = Some(Usage {
                         prompt_tokens,
                         completion_tokens,
+                        cost,
                     });
                 }
             }
@@ -178,12 +181,14 @@ mod tests {
         r.process(smallvec![ParsedStreamEvent::Usage {
             prompt_tokens: 10,
             completion_tokens: 5,
+            cost: Some(0.25),
         }]);
         assert_eq!(r.thread_id.as_deref(), Some("api_thread_xyz"));
         assert_eq!(r.response, "Hello world");
         let u = r.usage.expect("usage captured");
         assert_eq!(u.prompt_tokens, 10);
         assert_eq!(u.completion_tokens, 5);
+        assert_eq!(u.cost, Some(0.25));
     }
 
     #[test]
@@ -204,6 +209,7 @@ mod tests {
         r.process(smallvec![ParsedStreamEvent::Usage {
             prompt_tokens: 1,
             completion_tokens: 2,
+            cost: None,
         }]);
         let u = r.usage.expect("usage present");
         assert_eq!(u.prompt_tokens, 1);
@@ -271,7 +277,8 @@ mod tests {
             usage_event_from_keys(&value, "input_tokens", "output_tokens"),
             ParsedStreamEvent::Usage {
                 prompt_tokens: 10,
-                completion_tokens: 5
+                completion_tokens: 5,
+                cost: None,
             }
         ));
     }

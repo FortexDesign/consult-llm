@@ -41,6 +41,7 @@ pub(super) enum RenderedBlock {
     Usage {
         prompt_tokens: u64,
         completion_tokens: u64,
+        cost: Option<f64>,
     },
 }
 
@@ -75,6 +76,8 @@ pub(super) fn normalize_events(events: &[ParsedStreamEvent]) -> Vec<RenderedBloc
     let mut pending_files: Option<Vec<String>> = None;
     let mut total_prompt_tokens: u64 = 0;
     let mut total_completion_tokens: u64 = 0;
+    let mut total_cost: f64 = 0.0;
+    let mut has_cost = false;
 
     for event in events {
         match event {
@@ -151,11 +154,16 @@ pub(super) fn normalize_events(events: &[ParsedStreamEvent]) -> Vec<RenderedBloc
             ParsedStreamEvent::Usage {
                 prompt_tokens,
                 completion_tokens,
+                cost,
             } => {
                 // Accumulate Usage totals so the token separator renders
                 // once at the end rather than inline between content blocks.
                 total_prompt_tokens += prompt_tokens;
                 total_completion_tokens += completion_tokens;
+                if let Some(cost) = cost {
+                    total_cost += cost;
+                    has_cost = true;
+                }
             }
             _ => {}
         }
@@ -165,6 +173,7 @@ pub(super) fn normalize_events(events: &[ParsedStreamEvent]) -> Vec<RenderedBloc
         blocks.push(RenderedBlock::Usage {
             prompt_tokens: total_prompt_tokens,
             completion_tokens: total_completion_tokens,
+            cost: has_cost.then_some(total_cost),
         });
     }
 
@@ -354,10 +363,12 @@ pub(super) fn render_blocks(
             RenderedBlock::Usage {
                 prompt_tokens,
                 completion_tokens,
+                cost,
             } => {
                 lines.push(render_usage_line(
                     *prompt_tokens,
                     *completion_tokens,
+                    *cost,
                     inner_width,
                     model,
                     backend,
@@ -436,6 +447,7 @@ fn render_tool_line(
 fn render_usage_line(
     prompt_tokens: u64,
     completion_tokens: u64,
+    cost: Option<f64>,
     inner_width: usize,
     model: Option<&str>,
     backend: Option<&str>,
@@ -443,7 +455,7 @@ fn render_usage_line(
     let cost_suffix = model
         .zip(backend)
         .map(|(m, b)| {
-            let s = format_cost(Some(prompt_tokens), Some(completion_tokens), m, b);
+            let s = format_cost(Some(prompt_tokens), Some(completion_tokens), m, b, cost);
             if s == "\u{2014}" {
                 String::new()
             } else {

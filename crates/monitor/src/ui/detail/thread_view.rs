@@ -98,18 +98,27 @@ pub(in crate::ui) fn render_thread_detail_view(
                 detail.active_events.as_slice(),
             )));
         for (i, events) in all_turns {
-            let (ti, to) = events.iter().fold((0u64, 0u64), |(ai, ao), e| {
-                if let ParsedStreamEvent::Usage {
-                    prompt_tokens,
-                    completion_tokens,
-                } = e
-                {
-                    (ai + prompt_tokens, ao + completion_tokens)
-                } else {
-                    (ai, ao)
-                }
-            });
-            if (ti > 0 || to > 0)
+            let (ti, to, reported_cost) =
+                events.iter().fold((0u64, 0u64, 0.0f64), |(ai, ao, ac), e| {
+                    if let ParsedStreamEvent::Usage {
+                        prompt_tokens,
+                        completion_tokens,
+                        cost,
+                    } = e
+                    {
+                        (
+                            ai + prompt_tokens,
+                            ao + completion_tokens,
+                            ac + cost.unwrap_or(0.0),
+                        )
+                    } else {
+                        (ai, ao, ac)
+                    }
+                });
+            if reported_cost > 0.0 {
+                total_cost += reported_cost;
+                has_cost = true;
+            } else if (ti > 0 || to > 0)
                 && detail.backends.get(i).map(|b| b.as_str()) == Some("api")
                 && let Some(m) = detail.models.get(i)
             {

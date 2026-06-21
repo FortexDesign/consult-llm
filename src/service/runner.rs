@@ -137,6 +137,7 @@ pub fn run_single_model(
         error: error.clone(),
         tokens_in: usage.as_ref().map(|u| u.prompt_tokens),
         tokens_out: usage.as_ref().map(|u| u.completion_tokens),
+        cost: usage.as_ref().and_then(|u| u.cost),
         parsed_ts: None,
         thread_id: result_thread_id.clone(),
         reasoning_effort,

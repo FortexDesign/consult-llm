@@ -68,17 +68,27 @@ pub(in crate::ui) fn render_detail_view(
     }
 
     // Show token totals from Usage events
-    let (total_in, total_out) = detail.events.iter().fold((0u64, 0u64), |(i, o), e| {
-        if let ParsedStreamEvent::Usage {
-            prompt_tokens,
-            completion_tokens,
-        } = e
-        {
-            (i + prompt_tokens, o + completion_tokens)
-        } else {
-            (i, o)
-        }
-    });
+    let (total_in, total_out, total_cost, has_cost) =
+        detail
+            .events
+            .iter()
+            .fold((0u64, 0u64, 0.0f64, false), |(i, o, c, has), e| {
+                if let ParsedStreamEvent::Usage {
+                    prompt_tokens,
+                    completion_tokens,
+                    cost,
+                } = e
+                {
+                    (
+                        i + prompt_tokens,
+                        o + completion_tokens,
+                        c + cost.unwrap_or(0.0),
+                        has || cost.is_some(),
+                    )
+                } else {
+                    (i, o, c, has)
+                }
+            });
     if total_in > 0 || total_out > 0 {
         header_spans.push(Span::styled(
             format!(
@@ -89,7 +99,13 @@ pub(in crate::ui) fn render_detail_view(
             Style::default().fg(DIM_WHITE),
         ));
         if let (Some(model), Some(backend)) = (&detail.model, &detail.backend) {
-            let cost_str = format_cost(Some(total_in), Some(total_out), model, backend);
+            let cost_str = format_cost(
+                Some(total_in),
+                Some(total_out),
+                model,
+                backend,
+                has_cost.then_some(total_cost),
+            );
             if cost_str != "\u{2014}" {
                 header_spans.push(Span::styled(
                     format!("  {cost_str}"),

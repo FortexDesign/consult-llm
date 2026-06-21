@@ -357,7 +357,12 @@ impl AppState {
                 let mut any = false;
                 for &i in &sorted_indices {
                     let record = &self.history[i];
-                    if record.backend == "api"
+                    if let Some(cost) = record.cost
+                        && cost > 0.0
+                    {
+                        sum += cost;
+                        any = true;
+                    } else if record.backend == "api"
                         && let (Some(tokens_in), Some(tokens_out)) =
                             (record.tokens_in, record.tokens_out)
                     {

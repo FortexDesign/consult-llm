@@ -316,6 +316,7 @@ fn render_history_table(frame: &mut ratatui::Frame, area: Rect, state: &mut AppS
                     record.tokens_out,
                     &record.model,
                     &record.backend,
+                    record.cost,
                 );
 
                 let mut cells = vec![

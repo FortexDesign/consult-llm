@@ -382,6 +382,7 @@ fn extract_usage(u: &serde_json::Value) -> Option<ParsedStreamEvent> {
         Some(ParsedStreamEvent::Usage {
             prompt_tokens,
             completion_tokens,
+            cost: None,
         })
     } else {
         None
@@ -517,7 +518,8 @@ mod tests {
             &ev[1],
             ParsedStreamEvent::Usage {
                 prompt_tokens: 100,
-                completion_tokens: 50
+                completion_tokens: 50,
+                ..
             }
         ));
     }
@@ -567,7 +569,8 @@ mod tests {
             &ev[1],
             ParsedStreamEvent::Usage {
                 prompt_tokens: 65,
-                completion_tokens: 30
+                completion_tokens: 30,
+                ..
             }
         ));
     }

@@ -185,6 +185,7 @@ impl StreamHandler for ChatStreamHandler<'_> {
                 s.stream_event(ParsedStreamEvent::Usage {
                     prompt_tokens: u.prompt_tokens,
                     completion_tokens: u.completion_tokens,
+                    cost: u.cost,
                 });
             }
         }
@@ -243,6 +244,7 @@ fn effective_usage(u: ApiUsage) -> Usage {
     Usage {
         prompt_tokens: u.prompt_tokens,
         completion_tokens: effective_completion,
+        cost: None,
     }
 }
 

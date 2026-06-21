@@ -142,6 +142,7 @@ impl AppState {
             error: Some("process died without completing".into()),
             tokens_in: None,
             tokens_out: None,
+            cost: None,
             parsed_ts: Some(finished_at),
             thread_id: meta.thread_id,
             reasoning_effort: meta.reasoning_effort,

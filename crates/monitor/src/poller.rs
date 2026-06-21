@@ -381,6 +381,7 @@ fn persist_snapshot_orphan(snapshot: &ActiveSnapshot) {
         error: Some("process died without completing".into()),
         tokens_in: None,
         tokens_out: None,
+        cost: None,
         parsed_ts: Some(finished_at),
         thread_id: snapshot.thread_id.clone(),
         reasoning_effort: snapshot.reasoning_effort.clone(),

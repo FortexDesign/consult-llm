@@ -59,7 +59,11 @@ pub fn parse_opencode_line(line: &str) -> StreamEvents {
             if let Some(part) = event.get("part")
                 && let Some(tokens) = part.get("tokens")
             {
-                smallvec![usage_event_from_keys(tokens, "input", "output")]
+                let mut usage = usage_event_from_keys(tokens, "input", "output");
+                if let ParsedStreamEvent::Usage { cost, .. } = &mut usage {
+                    *cost = part.get("cost").and_then(|v| v.as_f64());
+                }
+                smallvec![usage]
             } else {
                 smallvec![]
             }
@@ -359,7 +363,8 @@ mod tests {
             &events[0],
             ParsedStreamEvent::Usage {
                 prompt_tokens: 1000,
-                completion_tokens: 50
+                completion_tokens: 50,
+                ..
             }
         ));
     }

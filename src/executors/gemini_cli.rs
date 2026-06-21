@@ -242,7 +242,8 @@ mod tests {
             &events[0],
             ParsedStreamEvent::Usage {
                 prompt_tokens: 300,
-                completion_tokens: 200
+                completion_tokens: 200,
+                ..
             }
         ));
     }

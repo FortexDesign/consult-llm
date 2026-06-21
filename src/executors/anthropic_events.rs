@@ -263,6 +263,7 @@ impl StreamHandler for AnthropicStreamHandler<'_> {
         let usage = got_usage.then(|| Usage {
             prompt_tokens: input_tokens + cache_creation_tokens + cache_read_tokens,
             completion_tokens: output_tokens,
+            cost: None,
         });
         let thinking_opt = if thinking.is_empty() {
             None
@@ -282,6 +283,7 @@ impl StreamHandler for AnthropicStreamHandler<'_> {
                 s.stream_event(ParsedStreamEvent::Usage {
                     prompt_tokens: u.prompt_tokens,
                     completion_tokens: u.completion_tokens,
+                    cost: u.cost,
                 });
             }
         }

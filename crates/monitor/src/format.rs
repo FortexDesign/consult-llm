@@ -56,14 +56,17 @@ pub(crate) fn format_cost(
     tokens_out: Option<u64>,
     model: &str,
     backend: &str,
+    reported_cost: Option<f64>,
 ) -> String {
-    if backend != "api" {
-        return "\u{2014}".to_string();
+    if let Some(cost) = reported_cost
+        && cost > 0.0
+    {
+        return format_cost_value(cost);
     }
     match (tokens_in, tokens_out) {
         (Some(i), Some(o)) => {
             let cost = consult_llm_core::llm_cost::calculate_cost(i, o, model);
-            if cost.total_cost > 0.0 {
+            if cost.total_cost > 0.0 && backend == "api" {
                 format_cost_value(cost.total_cost)
             } else {
                 "\u{2014}".to_string()

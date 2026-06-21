@@ -23,11 +23,12 @@ pub fn query_llm(
     let cost_info = match &result.usage {
         Some(usage) => {
             let cost = calculate_cost(usage.prompt_tokens, usage.completion_tokens, &model);
+            let total_cost = usage.cost.unwrap_or(cost.total_cost);
             format!(
                 "Tokens: {} input, {} output | Cost: ${:.6} (input: ${:.6}, output: ${:.6})",
                 usage.prompt_tokens,
                 usage.completion_tokens,
-                cost.total_cost,
+                total_cost,
                 cost.input_cost,
                 cost.output_cost
             )

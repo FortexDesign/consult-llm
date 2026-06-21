@@ -58,6 +58,8 @@ pub struct HistoryRecord {
     pub tokens_in: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens_out: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
     /// Pre-parsed timestamp, populated at ingest time by the monitor.
     #[serde(skip)]
     pub parsed_ts: Option<chrono::DateTime<chrono::Utc>>,
@@ -499,6 +501,7 @@ mod tests {
             error: None,
             tokens_in: None,
             tokens_out: None,
+            cost: None,
             parsed_ts: None,
             thread_id: None,
             reasoning_effort: None,

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 pub struct Usage {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
 }
 
 /// Normalized event from any CLI's JSON stream.
@@ -44,6 +46,8 @@ pub enum ParsedStreamEvent {
     Usage {
         prompt_tokens: u64,
         completion_tokens: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cost: Option<f64>,
     },
 }
 
@@ -89,6 +93,7 @@ mod tests {
             ParsedStreamEvent::Usage {
                 prompt_tokens: 1000,
                 completion_tokens: 200,
+                cost: Some(0.0123),
             },
         ];
 
