@@ -50,6 +50,7 @@ pub struct ProviderRuntimeConfig {
     pub api_key: Option<String>,
     pub backend: Backend,
     pub opencode_provider: String,
+    pub reasoning_effort: Option<String>,
     pub selected_cli_profile: Option<SelectedCliProfile>,
 }
 
@@ -84,7 +85,9 @@ pub enum CliPromptMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum CliProfileType {
+    #[default]
     ClaudeCli,
 }
 
@@ -114,12 +117,6 @@ impl ClaudeEffort {
 impl std::fmt::Display for ClaudeEffort {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl Default for CliProfileType {
-    fn default() -> Self {
-        Self::ClaudeCli
     }
 }
 
@@ -192,6 +189,11 @@ impl Config {
     /// Get the OpenCode provider prefix for a provider family.
     pub fn opencode_provider_for(&self, provider: Provider) -> &str {
         &self.providers[&provider].opencode_provider
+    }
+
+    /// Get the configured reasoning effort for a provider, if any.
+    pub fn reasoning_effort_for(&self, provider: Provider) -> Option<&str> {
+        self.providers[&provider].reasoning_effort.as_deref()
     }
 
     #[allow(dead_code)]

@@ -84,6 +84,7 @@ impl ExecutorProvider {
                         base,
                         idle_timeout,
                         runtime,
+                        cfg.reasoning_effort_for(provider).map(str::to_string),
                     )),
                     ApiProtocol::AnthropicMessages => Arc::new(AnthropicApiExecutor::new(
                         self.agent.clone(),
@@ -116,7 +117,8 @@ impl ExecutorProvider {
             }
             Backend::OpenCodeCli => {
                 let prefix = cfg.opencode_provider_for(provider).to_string();
-                Arc::new(OpenCodeCliExecutor::new(prefix))
+                let effort = cfg.reasoning_effort_for(provider).map(str::to_string);
+                Arc::new(OpenCodeCliExecutor::new(prefix, effort))
             }
             Backend::Profile => {
                 let selected = cfg.selected_cli_profile_for(provider).ok_or_else(|| {

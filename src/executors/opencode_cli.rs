@@ -9,10 +9,11 @@ pub struct OpenCodeCliExecutor {
     capabilities: LlmExecutorCapabilities,
     /// OpenCode provider prefix (e.g. "minimax", "copilot", "google")
     provider_prefix: String,
+    reasoning_effort: Option<String>,
 }
 
 impl OpenCodeCliExecutor {
-    pub fn new(provider_prefix: String) -> Self {
+    pub fn new(provider_prefix: String, reasoning_effort: Option<String>) -> Self {
         Self {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
@@ -20,6 +21,7 @@ impl OpenCodeCliExecutor {
                 supports_file_refs: true,
             },
             provider_prefix,
+            reasoning_effort,
         }
     }
 }
@@ -187,6 +189,10 @@ impl LlmExecutor for OpenCodeCliExecutor {
         "opencode_cli"
     }
 
+    fn reasoning_effort(&self, _model: &str) -> Option<&str> {
+        self.reasoning_effort.as_deref()
+    }
+
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
         let prepared = prepare_cli_request(req, append_file_refs);
         let fps = prepared.file_paths.as_deref();
@@ -211,6 +217,11 @@ impl LlmExecutor for OpenCodeCliExecutor {
             "--model".to_string(),
             opencode_model,
         ];
+
+        if let Some(effort) = &self.reasoning_effort {
+            args.push("--variant".to_string());
+            args.push(effort.to_string());
+        }
 
         if let Some(t) = tid {
             args.push("--session".to_string());
@@ -262,6 +273,15 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert!(
             matches!(&events[0], ParsedStreamEvent::AssistantText { text } if text == "Hello world")
+        );
+    }
+
+    #[test]
+    fn test_opencode_reasoning_effort_reports_variant() {
+        let executor = OpenCodeCliExecutor::new("openrouter".into(), Some("high".into()));
+        assert_eq!(
+            executor.reasoning_effort("openrouter/z-ai/glm-5.2"),
+            Some("high")
         );
     }
 

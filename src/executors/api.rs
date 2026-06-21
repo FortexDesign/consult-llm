@@ -22,6 +22,8 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_options: Option<StreamOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<ReasoningOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     extra_body: Option<serde_json::Value>,
 }
 
@@ -30,12 +32,18 @@ struct StreamOptions {
     include_usage: bool,
 }
 
+#[derive(Serialize)]
+struct ReasoningOptions {
+    effort: String,
+}
+
 pub struct ApiExecutor {
     agent: ureq::Agent,
     api_key: String,
     base_url: String,
     idle_timeout: Duration,
     runtime: OpenAiCompatRuntime,
+    reasoning_effort: Option<String>,
     capabilities: LlmExecutorCapabilities,
 }
 
@@ -46,6 +54,7 @@ impl ApiExecutor {
         base_url: Option<String>,
         idle_timeout: Duration,
         runtime: OpenAiCompatRuntime,
+        reasoning_effort: Option<String>,
     ) -> Self {
         Self {
             agent,
@@ -53,6 +62,7 @@ impl ApiExecutor {
             base_url: base_url.unwrap_or_else(|| "https://api.openai.com/v1/".to_string()),
             idle_timeout,
             runtime,
+            reasoning_effort,
             capabilities: LlmExecutorCapabilities {
                 is_cli: false,
                 supports_threads: true,
@@ -88,6 +98,10 @@ impl LlmExecutor for ApiExecutor {
         "api"
     }
 
+    fn reasoning_effort(&self, _model: &str) -> Option<&str> {
+        self.reasoning_effort.as_deref()
+    }
+
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
         let turn = prepare_api_turn(req)?;
 
@@ -102,6 +116,12 @@ impl LlmExecutor for ApiExecutor {
         messages.extend(turn.transcript_messages());
 
         let extra_body = extra_body(self.runtime, turn.model());
+        let reasoning = self
+            .reasoning_effort
+            .as_ref()
+            .map(|effort| ReasoningOptions {
+                effort: effort.to_string(),
+            });
 
         let request = ChatRequest {
             model: turn.model().to_string(),
@@ -110,6 +130,7 @@ impl LlmExecutor for ApiExecutor {
             stream_options: Some(StreamOptions {
                 include_usage: true,
             }),
+            reasoning,
             extra_body,
         };
         let body = serde_json::to_vec(&request)?;

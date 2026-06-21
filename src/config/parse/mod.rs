@@ -98,6 +98,7 @@ pub(super) mod test_helpers {
                         api_key: key.map(|k| k.to_string()),
                         backend: backend.clone(),
                         opencode_provider: String::new(),
+                        reasoning_effort: None,
                         selected_cli_profile: None,
                     },
                 )

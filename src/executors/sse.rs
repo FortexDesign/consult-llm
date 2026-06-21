@@ -71,10 +71,7 @@ impl SseParser {
             );
         }
         let mut out = Vec::new();
-        loop {
-            let Some((content_end, delim_len)) = find_double_newline(&self.buf) else {
-                break;
-            };
+        while let Some((content_end, delim_len)) = find_double_newline(&self.buf) {
             let frame: Vec<u8> = self.buf.drain(..content_end).collect();
             self.buf.drain(..delim_len);
             // Use lossy decoding so a single invalid byte doesn't drop the whole

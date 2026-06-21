@@ -283,13 +283,13 @@ fn diff_snapshots(
                     return false;
                 }
             }
-            Some(previous) if previous.last_seq != snapshot.last_seq => {
-                if tx
-                    .send(PollUpdate::ActiveRunUpdated(snapshot.clone()))
-                    .is_err()
-                {
-                    return false;
-                }
+            Some(previous)
+                if previous.last_seq != snapshot.last_seq
+                    && tx
+                        .send(PollUpdate::ActiveRunUpdated(snapshot.clone()))
+                        .is_err() =>
+            {
+                return false;
             }
             _ => {}
         }

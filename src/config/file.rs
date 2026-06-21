@@ -589,6 +589,13 @@ openrouter:
         assert_eq!(m["CONSULT_LLM_GEMINI_EXTRA_ARGS"], "--yolo");
         assert_eq!(m["CONSULT_LLM_OPENCODE_GEMINI_PROVIDER"], "google");
 
+        let openrouter = ConfigFile::parse("openrouter:\n  reasoning_effort: high\n").unwrap();
+        let openrouter_env = openrouter.to_env_map(ApiKeyPolicy::Allow).unwrap();
+        assert_eq!(
+            openrouter_env["CONSULT_LLM_OPENROUTER_REASONING_EFFORT"],
+            "high"
+        );
+
         // Opencode global default.
         assert_eq!(m["CONSULT_LLM_OPENCODE_PROVIDER"], "copilot");
     }

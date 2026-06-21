@@ -87,6 +87,11 @@ fn parse_provider_config(
         .or_else(|| opencode_global.clone())
         .unwrap_or_else(|| spec.default_opencode_provider.to_string());
 
+    let reasoning_effort = spec
+        .reasoning_effort_env
+        .and_then(env)
+        .filter(|value| !value.trim().is_empty());
+
     // 5. Selected CLI profile (only for profile backend)
     let selected_cli_profile = if backend == Backend::Profile {
         let allowed: Vec<String> = cli_profiles.keys().cloned().collect();
@@ -117,6 +122,7 @@ fn parse_provider_config(
         api_key,
         backend,
         opencode_provider,
+        reasoning_effort,
         selected_cli_profile,
     })
 }

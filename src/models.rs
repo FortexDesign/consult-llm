@@ -2,18 +2,14 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum TaskMode {
     Review,
     Debug,
     Plan,
     Create,
+    #[default]
     General,
-}
-
-impl Default for TaskMode {
-    fn default() -> Self {
-        Self::General
-    }
 }
 
 /// Known LLM provider families, determined by model ID prefix.
@@ -320,7 +316,7 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         allowed_backends: &["api", "opencode", "profile"],
         opencode_env: "CONSULT_LLM_OPENCODE_OPENROUTER_PROVIDER",
         default_opencode_provider: "openrouter",
-        reasoning_effort_env: None,
+        reasoning_effort_env: Some("CONSULT_LLM_OPENROUTER_REASONING_EFFORT"),
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_OPENROUTER_CLI_PROFILE",
     },
@@ -543,7 +539,7 @@ mod tests {
                 assert!(!env.is_empty());
                 assert!(matches!(
                     spec.provider,
-                    Provider::OpenAI | Provider::Anthropic
+                    Provider::OpenAI | Provider::Anthropic | Provider::OpenRouter
                 ));
             }
             if let Some(env) = spec.extra_args_env {

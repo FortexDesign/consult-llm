@@ -575,6 +575,7 @@ to your config:
 ```yaml
 openrouter:
   backend: opencode
+  reasoning_effort: high
 
 extra_models:
   - openrouter/xiaomi/mimo-v2.5-pro
@@ -588,6 +589,10 @@ allowed_models:
 The `extra_models` entry adds the model to the catalog; `allowed_models` must
 also list it since it acts as an allowlist. Any `openrouter/*` model ID from
 OpenCode works -- add them to both lists.
+
+Set `openrouter.reasoning_effort` to `low`, `medium`, or `high` for reasoning
+models. With the OpenCode backend this is passed as `--variant <level>`; with
+the API backend it is sent as OpenRouter's `reasoning.effort` field.
 
 The `openrouter` selector resolves to the first available enabled model (e.g.
 `openrouter/auto` when no specific model is configured directly).
@@ -845,6 +850,7 @@ Environment variables override config file values.
 | `CONSULT_LLM_CODEX_EXTRA_ARGS`             | Extra CLI args appended to `codex exec` (shell-quoted)                                  | e.g. `--dangerously-bypass-approvals-and-sandbox`    |                                                      |
 | `CONSULT_LLM_GEMINI_EXTRA_ARGS`            | Extra CLI args appended to `gemini` (shell-quoted)                                      | shell-quoted args                                    |                                                      |
 | `CONSULT_LLM_CLAUDE_REASONING_EFFORT`      | Reasoning effort for native Claude CLI backend                                          | `low` `medium` `high` `xhigh` `max`                  | unset                                                |
+| `CONSULT_LLM_OPENROUTER_REASONING_EFFORT`  | Reasoning effort for OpenRouter reasoning models                                        | `low` `medium` `high`                                | unset                                                |
 | `CONSULT_LLM_CLAUDE_EXTRA_ARGS`            | Extra CLI args appended to `claude` (shell-quoted)                                      | shell-quoted args                                    |                                                      |
 | `CONSULT_LLM_OPENCODE_PROVIDER`            | Default OpenCode provider prefix for all models                                         | provider name                                        | per-model default                                    |
 | `CONSULT_LLM_ANTHROPIC_CLI_PROFILE`        | CLI profile name when `anthropic.backend` is `profile`                                  | profile name                                         |                                                      |

@@ -328,6 +328,16 @@ mod tests {
         api_key: &str,
         req: ExecutionRequest,
     ) -> (ExecuteResult, serde_json::Value) {
+        execute_openai_compat_mock_with_effort(response_body, provider, api_key, req, None)
+    }
+
+    fn execute_openai_compat_mock_with_effort(
+        response_body: &[u8],
+        provider: Provider,
+        api_key: &str,
+        req: ExecutionRequest,
+        reasoning_effort: Option<String>,
+    ) -> (ExecuteResult, serde_json::Value) {
         let (base, recorded, _headers) = start_mock_server(http_response(response_body));
         let executor = ApiExecutor::new(
             ureq::Agent::new_with_defaults(),
@@ -335,6 +345,7 @@ mod tests {
             Some(format!("{base}/custom/")),
             std::time::Duration::from_secs(5),
             runtime_for(provider),
+            reasoning_effort,
         );
         let result = executor.execute(req).expect("execute");
         let body: serde_json::Value =
@@ -483,6 +494,24 @@ data: [DONE]\n\n\
     }
 
     #[test]
+    fn mock_server_openrouter_includes_reasoning_effort() {
+        let openrouter_sse = b"\
+data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":\"stop\"}]}\n\n\
+data: [DONE]\n\n\
+";
+        let (req, _spool) = build_request("hi", "openrouter/z-ai/glm-5.2");
+        let (result, body) = execute_openai_compat_mock_with_effort(
+            openrouter_sse,
+            Provider::OpenRouter,
+            "test-openrouter-key",
+            req,
+            Some("high".into()),
+        );
+        assert_eq!(result.response, "Hello");
+        assert_eq!(body["reasoning"], serde_json::json!({"effort": "high"}));
+    }
+
+    #[test]
     fn mock_server_minimax_runtime_metadata_ignores_base_url() {
         let _xdg_guard = crate::test_util::XDG_STATE_LOCK
             .lock()
@@ -598,6 +627,7 @@ data: [DONE]\n\n\
             Some(format!("{openai_base}/v1/")),
             std::time::Duration::from_secs(5),
             runtime_for(Provider::OpenAI),
+            None,
         );
         let (req, _spool) = build_request("hi there", "gpt-test");
         let result = openai.execute(req).expect("openai execute");

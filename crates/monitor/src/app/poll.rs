@@ -74,15 +74,14 @@ impl AppState {
                     }
                 }
                 AppMode::ThreadDetail(detail)
-                    if detail.turn_ids.last().is_some_and(|last| *last == run_id) =>
+                    if detail.turn_ids.last().is_some_and(|last| *last == run_id)
+                        && !events.is_empty() =>
                 {
-                    if !events.is_empty() {
-                        for event in events {
-                            apply_run_event_to_thread_detail(detail, event);
-                        }
-                        if detail.auto_scroll {
-                            detail.scroll = usize::MAX;
-                        }
+                    for event in events {
+                        apply_run_event_to_thread_detail(detail, event);
+                    }
+                    if detail.auto_scroll {
+                        detail.scroll = usize::MAX;
                     }
                 }
                 _ => {}
