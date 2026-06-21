@@ -55,6 +55,14 @@ fn get_pricing(model: &str) -> Option<ModelPricing> {
             input_per_million: 1.25,
             output_per_million: 2.50,
         },
+        "openrouter/xiaomi/mimo-v2.5-pro" => ModelPricing {
+            input_per_million: 0.435,
+            output_per_million: 0.87,
+        },
+        "openrouter/z-ai/glm-5.2" => ModelPricing {
+            input_per_million: 1.0,
+            output_per_million: 4.0,
+        },
         _ => return None,
     })
 }
@@ -75,5 +83,24 @@ pub fn calculate_cost(prompt_tokens: u64, completion_tokens: u64, model: &str) -
             output_cost: 0.0,
             total_cost: 0.0,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prices_openrouter_glm() {
+        let cost = calculate_cost(2_530, 2_510, "openrouter/z-ai/glm-5.2");
+        assert!((cost.input_cost - 0.00253).abs() < f64::EPSILON);
+        assert!((cost.output_cost - 0.01004).abs() < f64::EPSILON);
+        assert!((cost.total_cost - 0.01257).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn prices_openrouter_mimo() {
+        let cost = calculate_cost(1_000_000, 1_000_000, "openrouter/xiaomi/mimo-v2.5-pro");
+        assert!((cost.total_cost - 1.305).abs() < f64::EPSILON);
     }
 }
