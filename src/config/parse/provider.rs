@@ -1,6 +1,4 @@
-use std::collections::HashMap;
-
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::models::{PROVIDERS, Provider, ProviderSpec};
 
@@ -34,6 +32,16 @@ fn parse_backend(raw: &str, spec: &ProviderSpec) -> Result<Backend, ConfigError>
 }
 
 /// Parse a single provider's runtime config from environment variables.
+fn parse_provider_env(
+    spec: &ProviderSpec,
+    env: &impl Fn(&str) -> Option<String>,
+) -> BTreeMap<String, String> {
+    let key = format!("CONSULT_LLM_{}_ENV", spec.id.to_ascii_uppercase());
+    env(&key)
+        .and_then(|raw| serde_json::from_str::<BTreeMap<String, String>>(&raw).ok())
+        .unwrap_or_default()
+}
+
 fn parse_provider_config(
     spec: &ProviderSpec,
     env: &impl Fn(&str) -> Option<String>,
@@ -92,6 +100,8 @@ fn parse_provider_config(
         .and_then(env)
         .filter(|value| !value.trim().is_empty());
 
+    let provider_env = parse_provider_env(spec, env);
+
     // 5. Selected CLI profile (only for profile backend)
     let selected_cli_profile = if backend == Backend::Profile {
         let allowed: Vec<String> = cli_profiles.keys().cloned().collect();
@@ -123,6 +133,7 @@ fn parse_provider_config(
         backend,
         opencode_provider,
         reasoning_effort,
+        env: provider_env,
         selected_cli_profile,
     })
 }

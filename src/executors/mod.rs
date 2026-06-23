@@ -12,6 +12,7 @@ pub mod cursor_cli;
 pub mod cursor_models;
 pub mod gemini_cli;
 pub mod opencode_cli;
+mod opencode_db;
 pub mod sse;
 pub mod stream;
 pub mod tag_splitter;
@@ -129,31 +130,6 @@ pub fn build_extra_dir_args(file_paths: Option<&[PathBuf]>, flag: &str) -> Vec<S
         args.push(dir);
     }
     args
-}
-
-/// Run a CLI tool with streaming, parse output, and return the result.
-/// Shared by all CLI executors to avoid duplicating the spawn -> stream -> check flow.
-/// The prompt is passed via stdin to keep it out of the process argument list.
-pub fn run_cli_executor(
-    command: &str,
-    args: &[String],
-    stdin_prompt: &str,
-    prompt: &str,
-    system_prompt: &str,
-    spool: Arc<Mutex<RunSpool>>,
-    parse_line: fn(&str) -> StreamEvents,
-) -> anyhow::Result<ExecuteResult> {
-    let mut parser = parse_line;
-    run_cli_executor_with_env(
-        command,
-        args,
-        None,
-        Some(stdin_prompt),
-        prompt,
-        system_prompt,
-        spool,
-        &mut parser,
-    )
 }
 
 /// Run a CLI tool with streaming, profile-backed env, and a parser trait.

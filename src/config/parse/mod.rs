@@ -99,6 +99,7 @@ pub(super) mod test_helpers {
                         backend: backend.clone(),
                         opencode_provider: String::new(),
                         reasoning_effort: None,
+                        env: std::collections::BTreeMap::new(),
                         selected_cli_profile: None,
                     },
                 )

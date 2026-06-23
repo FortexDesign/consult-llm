@@ -490,6 +490,17 @@ consult-llm config set openai.extra_args '--dangerously-bypass-approvals-and-san
 
 The same `extra_args` field is supported on `gemini:` for the Gemini CLI backend.
 
+Provider blocks support `env` for values that should be set only while launching that provider backend:
+
+```yaml
+openai:
+  backend: opencode
+  env:
+    OPENCODE_PERMISSION: '{"glob":"allow","read":"allow"}'
+```
+
+Use provider `env` from `.consult-llm.local.yaml` or the user config for machine-local values. The shared project config rejects literal provider env values.
+
 #### Cursor CLI
 
 Routes through `cursor-agent`:
@@ -516,7 +527,7 @@ consult-llm config set anthropic.reasoning_effort high  # low | medium | high | 
 consult-llm config set anthropic.extra_args '--permission-mode acceptEdits'
 ```
 
-Use the `profile` backend instead when you need a custom Claude command, env, model env var, or wrapper.
+Use the `profile` backend instead when you need a custom Claude command, model env var, prompt mode, or wrapper. Provider `env` is merged into profile env and takes precedence for matching keys.
 
 #### Profile backend
 
@@ -646,7 +657,7 @@ the conversation with full context from prior turns.
   use write-through caching for the payment endpoints.
 ```
 
-This works with Gemini CLI, Codex CLI, Cursor CLI, OpenCode, and Claude CLI. See the [debate skills](#skills) for multi-LLM workflows that use thread IDs to maintain context across debate rounds.
+This works with Gemini CLI, Codex CLI, Cursor CLI, OpenCode, and Claude CLI. OpenCode sessions use a consult-llm-managed SQLite database per thread unless `OPENCODE_DB` is set in provider `env`; this avoids contention between unrelated parallel OpenCode runs while preserving resume for returned thread IDs. See the [debate skills](#skills) for multi-LLM workflows that use thread IDs to maintain context across debate rounds.
 
 ### Config files
 

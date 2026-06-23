@@ -1,14 +1,21 @@
 use super::stream::{ParsedStreamEvent, StreamEvents, parse_json_line, usage_event_from_keys};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{append_file_refs, build_extra_dir_args, prepare_cli_request, run_cli_executor};
+use super::{
+    append_file_refs, build_extra_dir_args, prepare_cli_request, run_cli_executor_with_env,
+};
 pub struct CodexCliExecutor {
     capabilities: LlmExecutorCapabilities,
     codex_reasoning_effort: String,
     extra_args: Vec<String>,
+    env: std::collections::BTreeMap<String, String>,
 }
 
 impl CodexCliExecutor {
-    pub fn new(codex_reasoning_effort: String, extra_args: Vec<String>) -> Self {
+    pub fn new(
+        codex_reasoning_effort: String,
+        extra_args: Vec<String>,
+        env: std::collections::BTreeMap<String, String>,
+    ) -> Self {
         Self {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
@@ -17,6 +24,7 @@ impl CodexCliExecutor {
             },
             codex_reasoning_effort,
             extra_args,
+            env,
         }
     }
 }
@@ -166,14 +174,16 @@ impl LlmExecutor for CodexCliExecutor {
             args.push(t.to_string());
         }
 
-        run_cli_executor(
+        let mut parser = parse_codex_line;
+        run_cli_executor_with_env(
             "codex",
             &args,
-            &prepared.stdin_prompt,
+            Some(&self.env),
+            Some(&prepared.stdin_prompt),
             &prepared.prompt,
             &prepared.system_prompt,
             prepared.spool,
-            parse_codex_line,
+            &mut parser,
         )
     }
 }

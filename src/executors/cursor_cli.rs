@@ -6,14 +6,18 @@ use super::stream::{
     ParsedStreamEvent, StreamEvents, parse_json_line, tool_label, usage_event_from_keys,
 };
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{prepare_cli_request, run_cli_executor};
+use super::{prepare_cli_request, run_cli_executor_with_env};
 pub struct CursorCliExecutor {
     capabilities: LlmExecutorCapabilities,
     codex_reasoning_effort: String,
+    env: std::collections::BTreeMap<String, String>,
 }
 
 impl CursorCliExecutor {
-    pub fn new(codex_reasoning_effort: String) -> Self {
+    pub fn new(
+        codex_reasoning_effort: String,
+        env: std::collections::BTreeMap<String, String>,
+    ) -> Self {
         Self {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
@@ -21,6 +25,7 @@ impl CursorCliExecutor {
                 supports_file_refs: true,
             },
             codex_reasoning_effort,
+            env,
         }
     }
 }
@@ -292,14 +297,16 @@ impl LlmExecutor for CursorCliExecutor {
             args.push(t.to_string());
         }
 
-        let mut result = run_cli_executor(
+        let mut parser = parse_cursor_line;
+        let mut result = run_cli_executor_with_env(
             "cursor-agent",
             &args,
-            &prepared.stdin_prompt,
+            Some(&self.env),
+            Some(&prepared.stdin_prompt),
             &prepared.prompt,
             &prepared.system_prompt,
             prepared.spool,
-            parse_cursor_line,
+            &mut parser,
         )?;
         // Cursor doesn't always emit a session ID; preserve the input thread_id
         if result.thread_id.is_none() {

@@ -1,19 +1,25 @@
+use super::opencode_db;
 use super::stream::{
     ParsedStreamEvent, StreamEvents, first_non_empty_string, parse_json_line, tool_label,
     usage_event_from_keys,
 };
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{append_file_refs, prepare_cli_request, run_cli_executor};
+use super::{append_file_refs, prepare_cli_request, run_cli_executor_with_env};
 
 pub struct OpenCodeCliExecutor {
     capabilities: LlmExecutorCapabilities,
     /// OpenCode provider prefix (e.g. "minimax", "copilot", "google")
     provider_prefix: String,
     reasoning_effort: Option<String>,
+    env: std::collections::BTreeMap<String, String>,
 }
 
 impl OpenCodeCliExecutor {
-    pub fn new(provider_prefix: String, reasoning_effort: Option<String>) -> Self {
+    pub fn new(
+        provider_prefix: String,
+        reasoning_effort: Option<String>,
+        env: std::collections::BTreeMap<String, String>,
+    ) -> Self {
         Self {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
@@ -22,6 +28,7 @@ impl OpenCodeCliExecutor {
             },
             provider_prefix,
             reasoning_effort,
+            env,
         }
     }
 }
@@ -201,6 +208,14 @@ impl LlmExecutor for OpenCodeCliExecutor {
         let prepared = prepare_cli_request(req, append_file_refs);
         let fps = prepared.file_paths.as_deref();
         let tid = prepared.thread_id.as_deref();
+        let has_configured_db = self.env.contains_key("OPENCODE_DB");
+        let mapped_db = tid.map(opencode_db::load).transpose()?.flatten();
+        let fresh_db = if !has_configured_db && tid.is_none() {
+            Some(opencode_db::new_db_path()?)
+        } else {
+            None
+        };
+        let selected_db = mapped_db.as_ref().or(fresh_db.as_ref());
 
         let opencode_model = if prepared
             .model
@@ -241,15 +256,27 @@ impl LlmExecutor for OpenCodeCliExecutor {
             }
         }
 
-        run_cli_executor(
+        let mut env = self.env.clone();
+        if let Some(db_path) = selected_db {
+            env.entry("OPENCODE_DB".to_string())
+                .or_insert_with(|| db_path.display().to_string());
+        }
+
+        let mut parser = parse_opencode_line;
+        let result = run_cli_executor_with_env(
             "opencode",
             &args,
-            &prepared.stdin_prompt,
+            Some(&env),
+            Some(&prepared.stdin_prompt),
             &prepared.prompt,
             &prepared.system_prompt,
             prepared.spool,
-            parse_opencode_line,
-        )
+            &mut parser,
+        )?;
+        if let (Some(thread_id), Some(db_path)) = (&result.thread_id, selected_db) {
+            opencode_db::save(thread_id, db_path.clone())?;
+        }
+        Ok(result)
     }
 }
 
@@ -282,7 +309,11 @@ mod tests {
 
     #[test]
     fn test_opencode_reasoning_effort_reports_variant() {
-        let executor = OpenCodeCliExecutor::new("openrouter".into(), Some("high".into()));
+        let executor = OpenCodeCliExecutor::new(
+            "openrouter".into(),
+            Some("high".into()),
+            std::collections::BTreeMap::new(),
+        );
         assert_eq!(
             executor.reasoning_effort("openrouter/z-ai/glm-5.2"),
             Some("high")

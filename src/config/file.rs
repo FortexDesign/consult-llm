@@ -46,6 +46,9 @@ pub struct ProviderBlock {
     pub opencode_provider: Option<String>,
     pub reasoning_effort: Option<String>,
     pub api_key: Option<String>,
+    /// Extra environment variables passed to the selected backend process or API transport.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     /// Extra CLI args appended to the underlying CLI invocation (codex/gemini).
     /// Tokenized with shell-style quoting; only honored for providers whose
     /// active backend is `codex-cli` (openai) or `gemini-cli` (gemini).
@@ -74,6 +77,8 @@ pub enum ApiKeyPolicy {
 pub enum ProjectConfigPolicyError {
     /// An API key was set in the project config.
     ApiKey { provider: &'static str },
+    /// A literal env value was set in a provider block in the project config.
+    ProviderEnv { provider: &'static str },
     /// A literal env value was set in a CLI profile in the project config.
     CliProfileEnv { profile: String },
 }
@@ -86,6 +91,14 @@ impl std::fmt::Display for ProjectConfigPolicyError {
                     f,
                     "API keys are not allowed in the shared project config (.consult-llm.yaml). \
                      Move `{}.api_key` to .consult-llm.local.yaml or ~/.config/consult-llm/config.yaml.",
+                    provider
+                )
+            }
+            ProjectConfigPolicyError::ProviderEnv { provider } => {
+                write!(
+                    f,
+                    "Literal env values are not allowed in the shared project config (.consult-llm.yaml). \
+                     Move `{}.env` to .consult-llm.local.yaml or ~/.config/consult-llm/config.yaml.",
                     provider
                 )
             }
@@ -182,6 +195,15 @@ fn validate_provider_block(provider: Provider, block: &ProviderBlock) -> Result<
             "unsupported provider field `reasoning_effort` for provider `{}`",
             spec.id
         ));
+    }
+    for (key, value) in &block.env {
+        if key.trim().is_empty() || key.contains('=') {
+            return Err(format!(
+                "invalid key `{}.env`: env keys must be non-empty and cannot contain '='",
+                spec.id
+            ));
+        }
+        validate_no_nul(&format!("{}.env.{key}", spec.id), value)?;
     }
     if block.extra_args.is_some() && spec.extra_args_env.is_none() {
         return Err(format!(
@@ -331,6 +353,18 @@ impl ConfigFile {
                     m.insert(spec.api_key_env.to_string(), trimmed.to_string());
                 }
                 // blank/whitespace-only: silently skip (treat as unset)
+            }
+
+            if policy == ApiKeyPolicy::Forbid && !block.env.is_empty() {
+                return Err(ProjectConfigPolicyError::ProviderEnv { provider: spec.id });
+            }
+
+            if !block.env.is_empty() {
+                let value = serde_json::to_string(&block.env).expect("provider env map serializes");
+                m.insert(
+                    format!("CONSULT_LLM_{}_ENV", spec.id.to_ascii_uppercase()),
+                    value,
+                );
             }
 
             if let Some(v) = &block.backend {
@@ -519,11 +553,15 @@ gemini:
   backend: gemini-cli
   opencode_provider: google
   api_key: gem-key
+  env:
+    GEMINI_CONFIG_DIR: /tmp/gemini
   extra_args: --yolo
 openai:
   backend: api
   reasoning_effort: high
   api_key: sk-test
+  env:
+    OPENAI_TEST_ENV: value
   extra_args: --dangerously-bypass-approvals-and-sandbox
 anthropic:
   backend: api
@@ -588,6 +626,14 @@ openrouter:
         );
         assert_eq!(m["CONSULT_LLM_GEMINI_EXTRA_ARGS"], "--yolo");
         assert_eq!(m["CONSULT_LLM_OPENCODE_GEMINI_PROVIDER"], "google");
+        assert_eq!(
+            m["CONSULT_LLM_GEMINI_ENV"],
+            r#"{"GEMINI_CONFIG_DIR":"/tmp/gemini"}"#
+        );
+        assert_eq!(
+            m["CONSULT_LLM_OPENAI_ENV"],
+            r#"{"OPENAI_TEST_ENV":"value"}"#
+        );
 
         let openrouter = ConfigFile::parse("openrouter:\n  reasoning_effort: high\n").unwrap();
         let openrouter_env = openrouter.to_env_map(ApiKeyPolicy::Allow).unwrap();
@@ -890,6 +936,26 @@ cli_profiles:
         let msg = err.to_string();
         assert!(msg.contains("cli_profiles"));
         assert!(msg.contains(".env"));
+    }
+
+    #[test]
+    fn test_project_config_rejects_provider_env() {
+        let cfg = ConfigFile::parse(
+            r#"
+openai:
+  env:
+    OPENCODE_PERMISSION: '{}'
+"#,
+        )
+        .unwrap();
+        let err = cfg.to_env_map(ApiKeyPolicy::Forbid).unwrap_err();
+        assert!(matches!(
+            err,
+            ProjectConfigPolicyError::ProviderEnv { provider } if provider == "openai"
+        ));
+        let msg = err.to_string();
+        assert!(msg.contains("openai.env"));
+        assert!(msg.contains(".consult-llm.local.yaml"));
     }
 
     #[test]

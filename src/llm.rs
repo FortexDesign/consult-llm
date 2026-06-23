@@ -97,14 +97,18 @@ impl ExecutorProvider {
             Backend::CodexCli => Arc::new(CodexCliExecutor::new(
                 cfg.codex_reasoning_effort.clone(),
                 cfg.codex_extra_args.clone(),
+                cfg.env_for(provider).clone(),
             )),
-            Backend::GeminiCli => Arc::new(GeminiCliExecutor::new(cfg.gemini_extra_args.clone())),
+            Backend::GeminiCli => Arc::new(GeminiCliExecutor::new(
+                cfg.gemini_extra_args.clone(),
+                cfg.env_for(provider).clone(),
+            )),
             Backend::ClaudeCli => {
                 use crate::config::types::{CliProfileInterface, CliPromptMode};
                 let config = ClaudeCliConfig {
                     command: "claude".to_string(),
                     args: cfg.claude_extra_args.clone(),
-                    env: std::collections::BTreeMap::new(),
+                    env: cfg.env_for(provider).clone(),
                     interface: CliProfileInterface::StreamJson,
                     prompt: CliPromptMode::Stdin,
                     effort: cfg.claude_reasoning_effort,
@@ -112,13 +116,18 @@ impl ExecutorProvider {
                 };
                 Arc::new(ClaudeCliExecutor::new(config))
             }
-            Backend::CursorCli => {
-                Arc::new(CursorCliExecutor::new(cfg.codex_reasoning_effort.clone()))
-            }
+            Backend::CursorCli => Arc::new(CursorCliExecutor::new(
+                cfg.codex_reasoning_effort.clone(),
+                cfg.env_for(provider).clone(),
+            )),
             Backend::OpenCodeCli => {
                 let prefix = cfg.opencode_provider_for(provider).to_string();
                 let effort = cfg.reasoning_effort_for(provider).map(str::to_string);
-                Arc::new(OpenCodeCliExecutor::new(prefix, effort))
+                Arc::new(OpenCodeCliExecutor::new(
+                    prefix,
+                    effort,
+                    cfg.env_for(provider).clone(),
+                ))
             }
             Backend::Profile => {
                 let selected = cfg.selected_cli_profile_for(provider).ok_or_else(|| {
@@ -131,7 +140,11 @@ impl ExecutorProvider {
                         let config = ClaudeCliConfig {
                             command: selected.profile.command.clone(),
                             args: selected.profile.args.clone(),
-                            env: selected.profile.env.clone(),
+                            env: {
+                                let mut env = selected.profile.env.clone();
+                                env.extend(cfg.env_for(provider).clone());
+                                env
+                            },
                             interface: selected.profile.interface.clone(),
                             prompt: selected.profile.prompt.clone(),
                             effort: selected.profile.effort,

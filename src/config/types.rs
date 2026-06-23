@@ -51,6 +51,7 @@ pub struct ProviderRuntimeConfig {
     pub backend: Backend,
     pub opencode_provider: String,
     pub reasoning_effort: Option<String>,
+    pub env: std::collections::BTreeMap<String, String>,
     pub selected_cli_profile: Option<SelectedCliProfile>,
 }
 
@@ -194,6 +195,11 @@ impl Config {
     /// Get the configured reasoning effort for a provider, if any.
     pub fn reasoning_effort_for(&self, provider: Provider) -> Option<&str> {
         self.providers[&provider].reasoning_effort.as_deref()
+    }
+
+    /// Get configured environment variables for a provider backend.
+    pub fn env_for(&self, provider: Provider) -> &std::collections::BTreeMap<String, String> {
+        &self.providers[&provider].env
     }
 
     #[allow(dead_code)]
