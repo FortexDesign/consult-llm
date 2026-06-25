@@ -22,6 +22,7 @@ pub enum Provider {
     Anthropic,
     Grok,
     OpenRouter,
+    Zai,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +125,7 @@ pub const ALL_PROVIDERS: &[Provider] = &[
     Provider::Anthropic,
     Provider::Grok,
     Provider::OpenRouter,
+    Provider::Zai,
 ];
 
 /// The provider registry. Order matters: `all_builtin_models()` flattens in this order,
@@ -320,6 +322,30 @@ pub static PROVIDERS: &[ProviderSpec] = &[
         extra_args_env: None,
         cli_profile_env: "CONSULT_LLM_OPENROUTER_CLI_PROFILE",
     },
+    ProviderSpec {
+        provider: Provider::Zai,
+        cursor_model_prefixes: &[],
+        id: "zai",
+        model_prefixes: &["glm-"],
+        api_base_url: Some("https://api.z.ai/api/paas/v4"),
+        api_protocol: ApiProtocol::OpenAiCompat(OpenAiCompatRuntime {
+            extra_body: None,
+            think_tags: None,
+        }),
+        builtin_models: &["glm-5.2"],
+        selector_priorities: &["glm-5.2"],
+        api_key_env: "ZAI_API_TOKEN",
+        backend_env: "CONSULT_LLM_ZAI_BACKEND",
+        legacy_backend_env: None,
+        legacy_mode_env: None,
+        cli_backend_value: None,
+        allowed_backends: &["api", "profile"],
+        opencode_env: "CONSULT_LLM_OPENCODE_ZAI_PROVIDER",
+        default_opencode_provider: "zai",
+        reasoning_effort_env: None,
+        extra_args_env: None,
+        cli_profile_env: "CONSULT_LLM_ZAI_CLI_PROFILE",
+    },
 ];
 
 fn model_matches_prefix(model: &str, prefix: &str) -> bool {
@@ -432,6 +458,7 @@ mod tests {
             ("claude-opus-4-7", Provider::Anthropic),
             ("grok-4.3", Provider::Grok),
             ("openrouter/auto", Provider::OpenRouter),
+            ("glm-5.2", Provider::Zai),
         ];
 
         let builtins = all_builtin_models();

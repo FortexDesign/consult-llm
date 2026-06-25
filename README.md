@@ -22,7 +22,7 @@
 `consult-llm` is a tool for getting a second opinion from another AI model,
 right inside your existing agent workflow. Use it to plan architecture,
 review changes, debate approaches, or get unstuck on tricky bugs. It supports GPT-5.5, Gemini 3.1 Pro, Claude Opus 4.7,
-DeepSeek V4 Pro, MiniMax M2.7, and Grok 4.3, along with any `openrouter/*` model, with API and local CLI backends,
+DeepSeek V4 Pro, MiniMax M2.7, Grok 4.3, and GLM 5.2, along with any `openrouter/*` model, with API and local CLI backends,
 multi-turn threads, git diff context, web-mode clipboard export, and a live monitor TUI.
 
 ## Why a second opinion?
@@ -103,7 +103,8 @@ Or set API keys:
 consult-llm config set openai.api_key your_openai_key
 consult-llm config set gemini.api_key your_gemini_key
 consult-llm config set grok.api_key your_xai_key
-# or via environment variables: OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, etc.
+consult-llm config set zai.api_key your_zai_key
+# or via environment variables: OPENAI_API_KEY, GEMINI_API_KEY, XAI_API_KEY, ZAI_API_TOKEN, etc.
 ```
 
 3. Verify your setup:
@@ -420,7 +421,7 @@ consult-llm update                    # self-update the binary
 
 `consult-llm` separates **model families** from **backends**.
 
-A **model family** is what you ask for: `gemini`, `openai`, `deepseek`, `minimax`, `anthropic`, `grok`, or `openrouter`.
+A **model family** is what you ask for: `gemini`, `openai`, `deepseek`, `minimax`, `anthropic`, `grok`, `zai`, or `openrouter`.
 
 A **backend** is how `consult-llm` reaches that model family:
 
@@ -435,6 +436,7 @@ A **backend** is how `consult-llm` reaches that model family:
 | MiniMax      | yes           | `opencode`, `profile`                             | `MINIMAX_API_KEY`    |
 | Anthropic    | yes           | `profile`, `claude-cli`, `cursor-cli`             | `ANTHROPIC_API_KEY`  |
 | Grok         | yes           | `cursor-cli`, `profile`                           | `XAI_API_KEY`        |
+| Zai (GLM)    | yes           | `profile`                                         | `ZAI_API_TOKEN`      |
 | OpenRouter   | yes           | `opencode`, `profile`                             | `OPENROUTER_API_KEY` |
 
 ### API backend
@@ -771,6 +773,7 @@ API keys are **not** allowed in `.consult-llm.yaml` (the committed project confi
 - `DEEPSEEK_API_KEY`
 - `MINIMAX_API_KEY`
 - `XAI_API_KEY`
+- `ZAI_API_TOKEN`
 
 **[direnv](https://direnv.net/)** is an alternative to `.consult-llm.local.yaml` for project-specific keys via environment variables. Add a `.envrc` in the repo root and `direnv allow` it, then put keys in a `.env` file (both gitignored):
 
@@ -846,6 +849,7 @@ Environment variables override config file values.
 | `MINIMAX_API_KEY`                          | MiniMax API key                                                                         |                                                      |                                                      |
 | `OPENROUTER_API_KEY`                       | OpenRouter API key                                                                      |                                                      |                                                      |
 | `XAI_API_KEY`                              | xAI API key for Grok models                                                             |                                                      |                                                      |
+| `ZAI_API_TOKEN`                            | Z.AI API key for GLM models                                                             |                                                      |                                                      |
 | `CONSULT_LLM_DEFAULT_MODEL`                | Model or selector to use for single-response calls when `-m` is omitted                 | selector or exact model ID                           | first available                                      |
 | `CONSULT_LLM_DEFAULT_MODELS`               | Comma-separated ordered multi-model defaults when `-m` is omitted; duplicates preserved | selectors or exact model IDs                         | empty (falls through to default_model then fallback) |
 | `CONSULT_LLM_GEMINI_BACKEND`               | Backend for Gemini models                                                               | `api` `gemini-cli` `cursor-cli` `opencode` `profile` | `api`                                                |
@@ -854,6 +858,7 @@ Environment variables override config file values.
 | `CONSULT_LLM_MINIMAX_BACKEND`              | Backend for MiniMax models                                                              | `api` `opencode` `profile`                           | `api`                                                |
 | `CONSULT_LLM_ANTHROPIC_BACKEND`            | Backend for Anthropic models                                                            | `api` `profile` `claude-cli` `cursor-cli`            | `api`                                                |
 | `CONSULT_LLM_GROK_BACKEND`                 | Backend for Grok models                                                                 | `api` `cursor-cli` `profile`                         | `api`                                                |
+| `CONSULT_LLM_ZAI_BACKEND`                  | Backend for Z.AI (GLM) models                                                           | `api` `profile`                                      | `api`                                                |
 | `CONSULT_LLM_OPENROUTER_BACKEND`           | Backend for OpenRouter models                                                           | `api` `opencode` `profile`                           | `api`                                                |
 | `CONSULT_LLM_ALLOWED_MODELS`               | Comma-separated allowlist; restricts which models are enabled                           | model IDs                                            | all                                                  |
 | `CONSULT_LLM_EXTRA_MODELS`                 | Comma-separated extra model IDs to add to the catalog                                   | model IDs                                            |                                                      |
@@ -870,6 +875,7 @@ Environment variables override config file values.
 | `CONSULT_LLM_DEEPSEEK_CLI_PROFILE`         | CLI profile name when `deepseek.backend` is `profile`                                   | profile name                                         |                                                      |
 | `CONSULT_LLM_MINIMAX_CLI_PROFILE`          | CLI profile name when `minimax.backend` is `profile`                                    | profile name                                         |                                                      |
 | `CONSULT_LLM_GROK_CLI_PROFILE`             | CLI profile name when `grok.backend` is `profile`                                       | profile name                                         |                                                      |
+| `CONSULT_LLM_ZAI_CLI_PROFILE`              | CLI profile name when `zai.backend` is `profile`                                        | profile name                                         |                                                      |
 | `CONSULT_LLM_OPENROUTER_CLI_PROFILE`       | CLI profile name when `openrouter.backend` is `profile`                                 | profile name                                         |                                                      |
 | `CONSULT_LLM_OPENCODE_OPENAI_PROVIDER`     | OpenCode provider for OpenAI models                                                     | provider name                                        | `openai`                                             |
 | `CONSULT_LLM_OPENCODE_GEMINI_PROVIDER`     | OpenCode provider for Gemini models                                                     | provider name                                        | `google`                                             |

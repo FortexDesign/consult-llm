@@ -286,6 +286,7 @@ mod tests {
                 "claude-opus-4-7",
                 "grok-4.3",
                 "openrouter/auto",
+                "glm-5.2",
             ]
         );
     }

@@ -581,9 +581,12 @@ opencode:
 openrouter:
   backend: api
   api_key: or-test
+zai:
+  backend: profile
+  cli_profile: claude-zai
 "#;
         let cfg = ConfigFile::parse(yaml).expect("parses");
-        assert_eq!(cfg.providers.len(), 7);
+        assert_eq!(cfg.providers.len(), 8);
         for spec in PROVIDERS {
             assert!(
                 cfg.providers.contains_key(&spec.provider),
