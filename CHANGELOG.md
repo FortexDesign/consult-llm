@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.0.21 (2026-06-25)
+
+- Added z.ai (GLM) provider support, including the `zai` selector, `glm-5.2`, and `ZAI_API_TOKEN` API configuration.
+- OpenRouter OpenCode runs now support configured reasoning effort variants.
+- OpenCode sessions now keep separate session databases per conversation, avoiding cross-session history interference.
+- OpenCode cost reporting now uses the cost reported by OpenCode when available.
+- Provider backends can now receive provider-specific environment variables from user or local config.
+
 ## v3.0.20 (2026-06-12)
 
 - Added a native Claude CLI backend for Anthropic models, so `anthropic.backend: claude-cli` can use the stock `claude` command without defining a custom profile.
