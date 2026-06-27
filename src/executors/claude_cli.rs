@@ -4,7 +4,10 @@ use smallvec::smallvec;
 
 use super::stream::{ParsedStreamEvent, StreamEvents, first_non_empty_string, tool_label};
 use super::types::{ExecuteResult, ExecutionRequest, LlmExecutor, LlmExecutorCapabilities};
-use super::{CliOutputParser, run_cli_executor_with_env};
+use super::{
+    CliOutputParser, append_file_refs, build_extra_dir_args, prepare_cli_request,
+    run_cli_executor_with_env,
+};
 
 use crate::config::types::{ClaudeEffort, CliProfileInterface, CliPromptMode};
 
@@ -34,7 +37,7 @@ impl ClaudeCliExecutor {
             capabilities: LlmExecutorCapabilities {
                 is_cli: true,
                 supports_threads: true,
-                supports_file_refs: false,
+                supports_file_refs: true,
             },
             config,
         }
@@ -55,24 +58,9 @@ impl LlmExecutor for ClaudeCliExecutor {
     }
 
     fn execute(&self, req: ExecutionRequest) -> anyhow::Result<ExecuteResult> {
-        let ExecutionRequest {
-            prompt,
-            model,
-            system_prompt,
-            file_paths: _,
-            thread_id,
-            spool,
-        } = req;
-
-        let tid = thread_id.as_deref();
-
-        // When resuming a session, don't prepend the system prompt -
-        // the session already has all the context.
-        let full_prompt = if tid.is_some() {
-            prompt.clone()
-        } else {
-            format!("{system_prompt}\n\n{prompt}")
-        };
+        let prepared = prepare_cli_request(req, append_file_refs);
+        let fps = prepared.file_paths.as_deref();
+        let tid = prepared.thread_id.as_deref();
 
         let config = &self.config;
 
@@ -107,6 +95,8 @@ impl LlmExecutor for ClaudeCliExecutor {
         if let Some(t) = tid {
             args.push("--resume".into());
             args.push(t.to_string());
+        } else {
+            args.extend(build_extra_dir_args(fps, "--add-dir"));
         }
 
         if let Some(effort) = &config.effort
@@ -118,10 +108,10 @@ impl LlmExecutor for ClaudeCliExecutor {
 
         // Route the requested model to the CLI.
         if let Some(model_env) = &config.model_env {
-            env.insert(model_env.clone(), model);
+            env.insert(model_env.clone(), prepared.model.clone());
         } else if !args.iter().any(|a| a == "--model") {
             args.push("--model".into());
-            args.push(model);
+            args.push(prepared.model.clone());
         }
 
         // Default env vars for programmatic use. Profile-level env overrides these.
@@ -133,10 +123,11 @@ impl LlmExecutor for ClaudeCliExecutor {
             .or_insert_with(|| "1".into());
         env.entry("NO_COLOR".into()).or_insert_with(|| "1".into());
 
+        let prompt_arg = prepared.stdin_prompt.clone();
         let stdin_prompt = match config.prompt {
-            CliPromptMode::Stdin => Some(full_prompt),
+            CliPromptMode::Stdin => Some(prepared.stdin_prompt),
             CliPromptMode::Argument => {
-                args.push(full_prompt);
+                args.push(prompt_arg);
                 None
             }
         };
@@ -148,9 +139,9 @@ impl LlmExecutor for ClaudeCliExecutor {
             &args,
             Some(&env),
             stdin_prompt.as_deref(),
-            &prompt,
-            &system_prompt,
-            spool,
+            &prepared.prompt,
+            &prepared.system_prompt,
+            prepared.spool,
             &mut parser,
         )
     }
@@ -419,6 +410,7 @@ mod tests {
     use super::*;
     use crate::executors::stream::StreamReducer;
     use consult_llm_core::monitoring::RunSpool;
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     fn make_parser(interface: CliProfileInterface) -> ClaudeCliParser {
@@ -656,11 +648,19 @@ mod tests {
     // --- Executor tests ---
 
     fn request(prompt: &str, system_prompt: &str) -> ExecutionRequest {
+        request_with_files(prompt, system_prompt, None)
+    }
+
+    fn request_with_files(
+        prompt: &str,
+        system_prompt: &str,
+        file_paths: Option<Vec<PathBuf>>,
+    ) -> ExecutionRequest {
         ExecutionRequest {
             prompt: prompt.to_string(),
             model: "claude-opus-4-7".to_string(),
             system_prompt: system_prompt.to_string(),
-            file_paths: None,
+            file_paths,
             thread_id: None,
             spool: Arc::new(Mutex::new(RunSpool::disabled())),
         }
@@ -729,6 +729,24 @@ mod tests {
             result.response.contains("hello as arg"),
             "argument prompt should appear in output"
         );
+    }
+
+    #[test]
+    fn executor_uses_file_refs_in_prompt() {
+        let profile = make_stdin_profile("sh", vec!["-c".to_string(), "cat".to_string()]);
+        let executor = ClaudeCliExecutor::new(profile);
+        let result = executor
+            .execute(request_with_files(
+                "read the files",
+                "system: test",
+                Some(vec![
+                    PathBuf::from("src/lib.rs"),
+                    PathBuf::from("README.md"),
+                ]),
+            ))
+            .expect("execute");
+
+        assert!(result.response.contains("Files: @src/lib.rs @README.md"));
     }
 
     #[test]

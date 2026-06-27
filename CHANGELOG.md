@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.0.22 (2026-06-27)
+
+- Claude CLI runs now pass attached files as `@file` references instead of inlining file contents, avoiding prompt-size failures for large file context.
+
 ## v3.0.21 (2026-06-25)
 
 - Added z.ai (GLM) provider support, including the `zai` selector, `glm-5.2`, and `ZAI_API_TOKEN` API configuration.
