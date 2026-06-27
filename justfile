@@ -7,10 +7,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
-# Run all checks sequentially (order matters!)
-check: clippy format test
+# Run project checks through checkle
+check:
+    checkle run all
 
-# Run check and fail if there are uncommitted changes (for CI)
+# Run check and fail if there are uncommitted changes for CI
 check-ci: check
     #!/usr/bin/env bash
     set -euo pipefail
@@ -21,24 +22,21 @@ check-ci: check
         exit 1
     fi
 
-# Format Rust files
+# Check Rust formatting through checkle
 format:
-    @cargo fmt --all
+    checkle run format-check
 
-# Auto-fix clippy warnings, then fail on any remaining
+# Check clippy through checkle
 clippy:
-    @cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged --quiet -- -D clippy::all 2>&1 | { grep -v "^0 errors" || true; }
+    checkle run clippy
 
-# Build the project
+# Check the build through checkle
 build:
-    cargo build --workspace --all-targets
+    checkle run build
 
-# Run tests
+# Run tests through checkle
 test:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    output=$(cargo test --workspace --quiet 2>&1) || { echo "$output"; exit 1; }
-    echo "$output" | tail -1
+    checkle run test
 
 # Install debug binaries globally via symlink
 install-dev:
@@ -49,7 +47,7 @@ install:
     cargo install --offline --path . --locked
     cargo install --offline --path crates/monitor --locked
 
-# Release a new version (patch, minor, or major)
+# Release a new version
 release bump="patch":
     cargo-release --skip-publish {{bump}}
 
