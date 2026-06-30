@@ -74,7 +74,7 @@ Optional:
 
 Artifacts under `history/` are workflow records, not repository changes. Do not stage or commit them, even when they are required for the workflow or requested as sentinels. Leave them as uncommitted files unless the user explicitly asks to commit history artifacts.
 
-Do not create a feedback ledger. When review changes a plan, update the plan directly. Add a short `Review changes applied` section only when it helps explain material changes.
+Do not create a feedback ledger. Before implementation starts, when review changes a plan, update the plan directly. After implementation starts, or when the worktree already contains source changes for this unit, do not rewrite the plan for minor review feedback. Append a short `Review feedback` section to the plan or note instead, then apply the needed amendments manually.
 
 ## Phase A: snapshot and context
 
@@ -269,7 +269,12 @@ Also check architecture, module boundaries, compatibility, public contracts, reg
 If something is missing or wrong, provide concrete replacement text, missing code blocks, missing tests, or task edits. Return only actionable feedback.
 ```
 
-Apply accepted feedback by editing the plan directly. If feedback is wrong, ignore it. If review materially changes the design, add this optional section:
+Apply accepted feedback according to implementation state:
+
+- Before implementation starts, edit the plan directly when review feedback changes the execution contract.
+- After implementation starts, or when the worktree already contains source changes for this unit, do not churn the plan for minor amendments. Append a compact `Review feedback` section to the plan or note with the actionable items, then apply them manually during validation.
+- If feedback is wrong, ignore it.
+- If review materially changes the design before implementation starts, add this optional section:
 
 ```markdown
 ## Review changes applied
@@ -277,7 +282,7 @@ Apply accepted feedback by editing the plan directly. If feedback is wrong, igno
 - <short bullet>
 ```
 
-Do not create a ledger.
+Do not create a large feedback ledger.
 
 ## Phase D: execute
 
@@ -336,6 +341,8 @@ When `--parent-plan` is provided or the caller explicitly requests one, write th
 ```
 
 Load the `sideagent` skill before invoking sideagent. Follow that skill's current invocation contract. Use the configured default profile unless the user or local configuration names a specific profile. Do not invent a profile.
+
+Use sideagent for the initial implementation pass only. If the worktree already contains a substantial implementation diff for this unit, do not invoke sideagent again for review feedback, validation fixes, or minor plan amendments. The host agent owns those follow-up edits manually. Inspect the existing diff, apply localized fixes, and validate.
 
 If sideagent fails, inspect its output. Fix only local and obvious issues. Otherwise stop and summarize the blocker.
 
