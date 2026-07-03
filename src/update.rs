@@ -80,6 +80,8 @@ fn download(url: &str, dest: &std::path::Path) -> Result<()> {
 
 /// Extract a tar.gz archive into a directory.
 fn extract_tar(archive: &std::path::Path, dest: &std::path::Path) -> Result<()> {
+    validate_archive_paths(archive)?;
+
     let status = Command::new("tar")
         .arg("-xzf")
         .arg(archive)
@@ -92,6 +94,35 @@ fn extract_tar(archive: &std::path::Path, dest: &std::path::Path) -> Result<()> 
         bail!("Failed to extract archive");
     }
     Ok(())
+}
+
+fn validate_archive_paths(archive: &std::path::Path) -> Result<()> {
+    let output = Command::new("tar")
+        .arg("-tzf")
+        .arg(archive)
+        .output()
+        .context("Failed to inspect archive")?;
+
+    if !output.status.success() {
+        bail!("Failed to inspect archive");
+    }
+
+    let listing = String::from_utf8_lossy(&output.stdout);
+    for entry in listing.lines() {
+        if !archive_entry_is_safe(entry) {
+            bail!("Archive contains unsafe path: {entry}");
+        }
+    }
+    Ok(())
+}
+
+fn archive_entry_is_safe(entry: &str) -> bool {
+    let path = std::path::Path::new(entry);
+    !entry.is_empty()
+        && !path.is_absolute()
+        && path
+            .components()
+            .all(|component| !matches!(component, std::path::Component::ParentDir))
 }
 
 /// Compute SHA-256 hash of a file using system tools.
@@ -444,5 +475,24 @@ mod tests {
     fn test_empty_latest_treated_as_not_newer() {
         assert!(!is_newer_version("", "1.0.0"));
         assert!(!is_newer_version("not-a-version", "1.0.0"));
+    }
+
+    #[test]
+    fn archive_entry_rejects_absolute_paths() {
+        assert!(!archive_entry_is_safe("/tmp/consult-llm"));
+    }
+
+    #[test]
+    fn archive_entry_rejects_parent_traversal() {
+        assert!(!archive_entry_is_safe("../consult-llm"));
+        assert!(!archive_entry_is_safe("bin/../../consult-llm"));
+        assert!(!archive_entry_is_safe("bin/.."));
+    }
+
+    #[test]
+    fn archive_entry_allows_release_paths() {
+        assert!(archive_entry_is_safe("consult-llm"));
+        assert!(archive_entry_is_safe("consult-llm-monitor"));
+        assert!(archive_entry_is_safe("README.md"));
     }
 }

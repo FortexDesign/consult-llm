@@ -34,6 +34,23 @@ log_error() {
 	echo -e "${RED}Error:${NC} $1" >&2
 }
 
+validate_archive_paths() {
+	local archive_name="$1"
+	local listing
+
+	if ! listing=$(tar -tzf "$archive_name"); then
+		log_error "Failed to inspect archive"
+		return 1
+	fi
+
+	while IFS= read -r entry; do
+		if [[ -z "$entry" || "$entry" == /* || "$entry" == *"/../"* || "$entry" == "../"* || "$entry" == *"/.." ]]; then
+			log_error "Archive contains unsafe path: $entry"
+			return 1
+		fi
+	done <<< "$listing"
+}
+
 detect_platform() {
 	local os arch
 
@@ -174,6 +191,10 @@ install_from_release() {
 	log_success "Checksum verified"
 
 	log_info "Extracting archive..."
+	if ! validate_archive_paths "$archive_name"; then
+		cd - >/dev/null || cd "$HOME"
+		exit 1
+	fi
 	if ! tar -xzf "$archive_name"; then
 		log_error "Failed to extract archive"
 		exit 1
